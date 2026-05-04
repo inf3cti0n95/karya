@@ -1,4 +1,0 @@
-{"event": "ticket_created", "ticket_id": "TICKET-001", "timestamp": "2026-05-04T08:00:50.596869Z", "actor": null, "data": {}}
-{"event": "ticket_assigned", "ticket_id": "TICKET-001", "timestamp": "2026-05-04T08:01:03.939584Z", "actor": "test-user", "data": {"agent": "test-user"}}
-{"event": "ticket_transitioned", "ticket_id": "TICKET-001", "timestamp": "2026-05-04T08:01:04.220671Z", "actor": "test-user", "data": {"from": "backlog", "to": "todo"}}
-{"event": "ticket_transitioned", "ticket_id": "TICKET-001", "timestamp": "2026-05-04T08:01:04.352447Z", "actor": "test-user", "data": {"from": "todo", "to": "in-progress"}}
