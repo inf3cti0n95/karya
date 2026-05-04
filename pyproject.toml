@@ -1,0 +1,29 @@
+[build-system]
+requires = ["uv_build>=0.9.25,<0.10.0"]
+build-backend = "uv_build"
+
+[project]
+name = "karya"
+version = "0.1.0"
+description = "Deterministic, file-based execution system for autonomous agents"
+readme = "README.md"
+authors = [
+    { name = "Viraj Trivedi", email = "inf3cti0n95@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.3.3",
+    "filelock>=3.29.0",
+    "gitpython>=3.1.49",
+    "pydantic>=2.13.3",
+    "python-frontmatter>=1.1.0",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+karya = "karya.cli.main:cli"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+]
