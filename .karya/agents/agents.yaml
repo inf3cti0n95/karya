@@ -1,0 +1,5 @@
+agents:
+  default-agent:
+    description: "General purpose agent"
+    skills: []
+    max_concurrent_tickets: 1
