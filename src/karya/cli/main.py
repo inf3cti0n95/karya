@@ -24,19 +24,19 @@ from karya.exceptions import (
 from karya.sdk.client import KaryaClient
 
 
-def _emit(payload: Dict[str, Any], human: bool) -> None:
-    if human:
-        _render_human(payload)
-    else:
+def _emit(payload: Dict[str, Any], use_json: bool) -> None:
+    if use_json:
         click.echo(json.dumps(payload))
+    else:
+        _render_human(payload)
 
 
-def ok(human: bool, **kwargs: Any) -> None:
-    _emit({"status": "ok", **kwargs}, human)
+def ok(use_json: bool, **kwargs: Any) -> None:
+    _emit({"status": "ok", **kwargs}, use_json)
 
 
-def err(human: bool, code: str, message: str, **kwargs: Any) -> None:
-    _emit({"status": "error", "code": code, "message": message, **kwargs}, human)
+def err(use_json: bool, code: str, message: str, **kwargs: Any) -> None:
+    _emit({"status": "error", "code": code, "message": message, **kwargs}, use_json)
     raise SystemExit(1)
 
 
@@ -45,17 +45,17 @@ def _get_client(agent: str | None = None) -> KaryaClient:
 
 
 @click.group(add_help_option=False, invoke_without_command=True)
-@click.option("--help", "show_help", is_flag=True, help="Show help as JSON")
-@click.option("--human", is_flag=True, help="Use human-readable output")
+@click.option("--help", "show_help", is_flag=True, help="Show help")
+@click.option("--json", "use_json", is_flag=True, help="Use JSON output")
 @click.pass_context
-def cli(ctx: click.Context, show_help: bool, human: bool) -> None:
+def cli(ctx: click.Context, show_help: bool, use_json: bool) -> None:
     ctx.ensure_object(dict)
-    ctx.obj["human"] = human
+    ctx.obj["json"] = use_json
 
     if show_help or ctx.invoked_subcommand is None:
         commands = sorted(ctx.command.commands.keys())
         ok(
-            human,
+            use_json,
             commands=commands,
             command_descriptions=_command_descriptions(),
             message="Karya CLI - filesystem-first execution workflow for agents.",
@@ -68,7 +68,7 @@ def cli(ctx: click.Context, show_help: bool, human: bool) -> None:
 def init_cmd(ctx: click.Context) -> None:
     client = _get_client()
     client.init()
-    ok(ctx.obj["human"], path=".karya", initialized=True)
+    ok(ctx.obj["json"], path=".karya", initialized=True)
 
 
 @cli.command("create")
@@ -97,7 +97,7 @@ def create_cmd(
         ticket_type = TicketType(type_.lower())
         priority_value = Priority(priority.lower())
     except ValueError as exc:
-        err(ctx.obj["human"], "INVALID_OPTION", str(exc))
+        err(ctx.obj["json"], "INVALID_OPTION", str(exc))
     try:
         ticket = client.create_ticket(
             title=title,
@@ -109,10 +109,10 @@ def create_cmd(
             estimated_effort=effort,
         )
     except ValidationError as exc:
-        err(ctx.obj["human"], "VALIDATION_ERROR", str(exc))
+        err(ctx.obj["json"], "VALIDATION_ERROR", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         ticket={
             "id": ticket.id,
             "title": ticket.title,
@@ -149,7 +149,7 @@ def list_cmd(
         }
         for ticket in tickets
     ]
-    ok(ctx.obj["human"], count=len(payload), tickets=payload)
+    ok(ctx.obj["json"], count=len(payload), tickets=payload)
 
 
 @cli.command("next")
@@ -159,9 +159,9 @@ def next_cmd(ctx: click.Context, agent: str) -> None:
     client = _get_client(agent)
     ticket = client.get_next_ticket(agent)
     if ticket is None:
-        ok(ctx.obj["human"], status="empty", message="No eligible tickets.")
+        ok(ctx.obj["json"], status="empty", message="No eligible tickets.")
         return
-    ok(ctx.obj["human"], ticket=client.describe_ticket(ticket.id))
+    ok(ctx.obj["json"], ticket=client.describe_ticket(ticket.id))
 
 
 @cli.command("start")
@@ -177,12 +177,12 @@ def start_cmd(ctx: click.Context, ticket_id: str, agent: str | None) -> None:
             client.transition(ticket_id, "todo")
         client.transition(ticket_id, "in-progress")
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
     except InvalidTransitionError as exc:
-        err(ctx.obj["human"], "INVALID_TRANSITION", str(exc))
+        err(ctx.obj["json"], "INVALID_TRANSITION", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         ticket_id=ticket_id,
         previous_state=previous,
         new_state="in-progress",
@@ -198,18 +198,18 @@ def done_cmd(ctx: click.Context, ticket_id: str) -> None:
         ticket = client.transition(ticket_id, "done")
     except IncompleteAcceptanceCriteria as exc:
         err(
-            ctx.obj["human"],
+            ctx.obj["json"],
             "INCOMPLETE_CRITERIA",
             "Acceptance criteria incomplete.",
             unchecked=exc.unchecked,
         )
     except InvalidTransitionError as exc:
-        err(ctx.obj["human"], "INVALID_TRANSITION", str(exc))
+        err(ctx.obj["json"], "INVALID_TRANSITION", str(exc))
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         ticket_id=ticket.id,
         previous_state=None,
         new_state=ticket.status.value,
@@ -225,11 +225,11 @@ def block_cmd(ctx: click.Context, ticket_id: str, reason: str) -> None:
     try:
         client.block(ticket_id, reason)
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
     except InvalidTransitionError as exc:
-        err(ctx.obj["human"], "INVALID_TRANSITION", str(exc))
+        err(ctx.obj["json"], "INVALID_TRANSITION", str(exc))
 
-    ok(ctx.obj["human"], ticket_id=ticket_id, new_state="blocked", reason=reason)
+    ok(ctx.obj["json"], ticket_id=ticket_id, new_state="blocked", reason=reason)
 
 
 @cli.command("log")
@@ -241,10 +241,10 @@ def log_cmd(ctx: click.Context, ticket_id: str, message: str) -> None:
     try:
         ticket = client.log(ticket_id, message)
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         ticket_id=ticket_id,
         message="logged",
         entry_count=len(ticket.execution_log),
@@ -259,9 +259,9 @@ def describe_cmd(ctx: click.Context, ticket_id: str) -> None:
     try:
         description = client.describe_ticket(ticket_id)
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
 
-    ok(ctx.obj["human"], ticket=description)
+    ok(ctx.obj["json"], ticket=description)
 
 
 @cli.command("update")
@@ -276,17 +276,17 @@ def update_cmd(ctx: click.Context, ticket_id: str, field: str, value: str) -> No
         try:
             updates[field] = Priority(updates[field].lower())
         except ValueError as exc:
-            err(ctx.obj["human"], "INVALID_OPTION", str(exc))
+            err(ctx.obj["json"], "INVALID_OPTION", str(exc))
     try:
         client.update_ticket(ticket_id, updates)
     except UpdateForbiddenError as exc:
-        err(ctx.obj["human"], "UPDATE_FORBIDDEN", str(exc))
+        err(ctx.obj["json"], "UPDATE_FORBIDDEN", str(exc))
     except ValidationError as exc:
-        err(ctx.obj["human"], "VALIDATION_ERROR", str(exc))
+        err(ctx.obj["json"], "VALIDATION_ERROR", str(exc))
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
 
-    ok(ctx.obj["human"], ticket_id=ticket_id, updated=updates)
+    ok(ctx.obj["json"], ticket_id=ticket_id, updated=updates)
 
 
 @cli.command("assign")
@@ -298,9 +298,9 @@ def assign_cmd(ctx: click.Context, ticket_id: str, agent: str) -> None:
     try:
         client.assign(ticket_id, agent)
     except TicketNotFoundError as exc:
-        err(ctx.obj["human"], "NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "NOT_FOUND", str(exc))
 
-    ok(ctx.obj["human"], ticket_id=ticket_id, assigned_to=agent)
+    ok(ctx.obj["json"], ticket_id=ticket_id, assigned_to=agent)
 
 
 @cli.command("exec")
@@ -310,12 +310,12 @@ def exec_cmd(ctx: click.Context, agent: str) -> None:
     client = _get_client(agent)
     ticket = client.get_next_ticket(agent)
     if ticket is None:
-        ok(ctx.obj["human"], status="empty", message="No eligible tickets.")
+        ok(ctx.obj["json"], status="empty", message="No eligible tickets.")
         return
 
     description = client.describe_ticket(ticket.id)
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         ticket=description,
         context=client.load_context(),
         instructions=ticket.agent_instructions,
@@ -334,7 +334,7 @@ def sprint_cmd(ctx: click.Context) -> None:
 def sprint_plan_cmd(ctx: click.Context, limit: int) -> None:
     client = _get_client()
     sprint = client.plan_sprint(limit=limit)
-    ok(ctx.obj["human"], sprint=sprint.model_dump(mode="json"))
+    ok(ctx.obj["json"], sprint=sprint.model_dump(mode="json"))
 
 
 @sprint_cmd.command("status")
@@ -344,10 +344,10 @@ def sprint_status_cmd(ctx: click.Context) -> None:
     try:
         status = client._sprints.status()
     except Exception as exc:
-        err(ctx.obj["human"], "SPRINT_NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "SPRINT_NOT_FOUND", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         sprint=status["sprint"].model_dump(mode="json"),
         breakdown=status["breakdown"],
     )
@@ -355,15 +355,15 @@ def sprint_status_cmd(ctx: click.Context) -> None:
 
 @sprint_cmd.command("close")
 @click.pass_context
-def sprint_close_cmd(ctx: click.Context) -> None:
+def sprint_close_cmd(ctx: click.Context, ticket_id: str) -> None:
     client = _get_client()
     try:
         sprint = client._sprints.close()
     except Exception as exc:
-        err(ctx.obj["human"], "SPRINT_NOT_FOUND", str(exc))
+        err(ctx.obj["json"], "SPRINT_NOT_FOUND", str(exc))
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         sprint_id=sprint.id,
         completed=sprint.completed_points,
         incomplete=len(sprint.tickets) - sprint.completed_points,
@@ -377,7 +377,7 @@ def sprint_close_cmd(ctx: click.Context) -> None:
 def events_cmd(ctx: click.Context, ticket_id: str | None, last: int) -> None:
     client = _get_client()
     events = client.get_events(ticket_id=ticket_id, last=last)
-    ok(ctx.obj["human"], events=[event.model_dump(mode="json") for event in events])
+    ok(ctx.obj["json"], events=[event.model_dump(mode="json") for event in events])
 
 
 @cli.command("validate")
@@ -392,7 +392,7 @@ def validate_cmd(ctx: click.Context) -> None:
             invalid.append({"ticket_id": ticket.id, "errors": errors})
 
     ok(
-        ctx.obj["human"],
+        ctx.obj["json"],
         valid=len(tickets) - len(invalid),
         invalid=len(invalid),
         errors=invalid,

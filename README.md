@@ -1,11 +1,11 @@
-﻿# Karya
+# Karya
 
-Karya is a deterministic, file-based execution system for autonomous agents. It is not a task tracker; it is a protocol and local-first engine that stores all state in the filesystem, provides a JSON-first CLI, and exposes a Python SDK.
+Karya is a deterministic, file-based execution system for autonomous agents. It is not a task tracker; it is a protocol and local-first engine that stores all state in the filesystem, provides a human-first CLI with JSON support, and exposes a Python SDK.
 
 ## Key principles
 
 - Filesystem is the source of truth. A ticket's folder is its state.
-- CLI outputs JSON by default for automation. Use `--human` for rich output.
+- CLI outputs human-readable tables by default. Use `--json` for automation.
 - All writes go through the engine (SDK wraps services, CLI wraps SDK).
 - Every mutation triggers a Git commit.
 - Every write is schema-validated with Pydantic.
@@ -54,12 +54,12 @@ Attempt to complete (fails until acceptance criteria are checked):
 karya done TICKET-001
 ```
 
-## Human output
+## Machine Output (JSON)
 
-All commands support `--human` for rich, interactive output.
+For agents and automation, use the `--json` flag to receive structured data.
 
 ```bash
-karya list --state todo --human
+karya --json list --state todo
 ```
 
 ## Python SDK
