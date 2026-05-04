@@ -406,6 +406,9 @@ def _parse_value(value: str) -> Any:
         return value
 
 
+from rich.markdown import Markdown
+
+
 def _render_human(payload: Dict[str, Any]) -> None:
     console = Console()
     status = payload.get("status", "ok")
@@ -414,97 +417,164 @@ def _render_human(payload: Dict[str, Any]) -> None:
         title = f"Error: {payload.get('code', 'ERROR')}"
         message = payload.get("message", "")
         console.print(Panel(message, title=title, style="red"))
+        if "unchecked" in payload:
+            table = Table(title="Unchecked Acceptance Criteria")
+            table.add_column("Criteria")
+            for item in payload["unchecked"]:
+                table.add_row(str(item))
+            console.print(table)
         return
-
-    message = payload.get("message")
-    if message:
-        console.print(Panel(message, title="Karya"))
 
     if "commands" in payload:
-        descriptions = payload.get("command_descriptions", {})
-        table = Table(title="Commands")
-        table.add_column("Command", style="cyan")
-        table.add_column("Description")
-        for command in payload["commands"]:
-            table.add_row(str(command), str(descriptions.get(command, "")))
-        console.print(table)
+        _render_help(console, payload)
         return
 
-    if payload.get("status") == "empty":
+    if status == "empty":
         console.print(Panel(payload.get("message", "No results."), title="Empty"))
         return
 
-    if "tickets" in payload:
-        table = Table(title="Tickets")
-        table.add_column("ID", style="cyan")
-        table.add_column("Title")
-        table.add_column("Status")
-        table.add_column("Priority")
-        table.add_column("Owner")
-        for ticket in payload["tickets"]:
-            table.add_row(
-                str(ticket.get("id", "")),
-                str(ticket.get("title", "")),
-                str(ticket.get("status", "")),
-                str(ticket.get("priority", "")),
-                str(ticket.get("owner", "")),
-            )
+    ctx = click.get_current_context(silent=True)
+    command_path = ctx.command_path if ctx else ""
+    cmd_name = command_path.replace("karya ", "").strip()
+
+    if cmd_name == "init":
+        console.print(Panel(f"Karya workspace initialized at [cyan]{payload.get('path')}[/cyan]", title="Init", style="green"))
+    elif cmd_name == "create":
+        ticket = payload.get("ticket", {})
+        console.print(Panel(f"Created ticket [bold cyan]{ticket.get('id')}[/bold cyan]: {ticket.get('title')}", title="Create", style="green"))
+    elif cmd_name == "list":
+        _render_list(console, payload)
+    elif cmd_name == "next":
+        _render_ticket_detail(console, payload.get("ticket", {}))
+    elif cmd_name in ("start", "done", "block"):
+        prev = payload.get("previous_state", "unknown")
+        new = payload.get("new_state", "unknown")
+        tid = payload.get("ticket_id")
+        reason = f"\nReason: {payload.get('reason')}" if payload.get("reason") else ""
+        console.print(Panel(f"Ticket [bold cyan]{tid}[/bold cyan]: [yellow]{prev}[/yellow] → [green]{new}[/green]{reason}", title=cmd_name.capitalize(), style="blue"))
+    elif cmd_name == "log":
+        console.print(Panel(f"Logged to [bold cyan]{payload.get('ticket_id')}[/bold cyan]. Total entries: {payload.get('entry_count')}", title="Log", style="green"))
+    elif cmd_name == "describe":
+        _render_ticket_detail(console, payload.get("ticket", {}))
+    elif cmd_name == "update":
+        updates = payload.get("updated", {})
+        table = Table(title=f"Updated Ticket {payload.get('ticket_id')}")
+        table.add_column("Field", style="cyan")
+        table.add_column("New Value")
+        for k, v in updates.items():
+            table.add_row(str(k), str(v))
         console.print(table)
-        return
+    elif cmd_name == "assign":
+        console.print(Panel(f"Ticket [bold cyan]{payload.get('ticket_id')}[/bold cyan] assigned to [yellow]{payload.get('assigned_to')}[/yellow]", title="Assign", style="green"))
+    elif cmd_name == "exec":
+        _render_exec(console, payload)
+    elif cmd_name == "sprint plan":
+        sprint = payload.get("sprint", {})
+        console.print(Panel(f"Sprint [bold cyan]{sprint.get('id')}[/bold cyan] planned with {len(sprint.get('tickets', []))} tickets.", title="Sprint Planned", style="green"))
+        _render_list(console, {"tickets": [{"id": tid, "title": "...", "status": "todo", "priority": "...", "owner": None} for tid in sprint.get("tickets", [])]})
+    elif cmd_name == "sprint status":
+        _render_sprint_status(console, payload)
+    elif cmd_name == "sprint close":
+        console.print(Panel(f"Sprint [bold cyan]{payload.get('sprint_id')}[/bold cyan] closed.\n[green]Completed: {payload.get('completed')}[/green]\n[red]Incomplete: {payload.get('incomplete')}[/red]", title="Sprint Closed"))
+    elif cmd_name == "events":
+        _render_events(console, payload)
+    elif cmd_name == "validate":
+        _render_validate(console, payload)
+    else:
+        console.print(_dict_panel(payload, title="Result"))
 
-    if "ticket" in payload:
-        _render_ticket_detail(console, payload["ticket"])
-        return
 
-    if "events" in payload:
-        table = Table(title="Events")
-        table.add_column("Timestamp")
-        table.add_column("Event")
-        table.add_column("Ticket")
-        table.add_column("Actor")
-        for event in payload["events"]:
-            table.add_row(
-                str(event.get("timestamp", "")),
-                str(event.get("event", "")),
-                str(event.get("ticket_id", "")),
-                str(event.get("actor", "")),
-            )
-        console.print(table)
-        return
+def _render_help(console: Console, payload: Dict[str, Any]) -> None:
+    message = payload.get("message")
+    if message:
+        console.print(Panel(message, title="Karya"))
+    descriptions = payload.get("command_descriptions", {})
+    table = Table(title="Commands")
+    table.add_column("Command", style="cyan")
+    table.add_column("Description")
+    for command in payload["commands"]:
+        table.add_row(str(command), str(descriptions.get(command, "")))
+    console.print(table)
 
-    if "errors" in payload:
-        console.print(
-            Panel(
-                Text(
-                    f"Valid: {payload.get('valid', 0)} | Invalid: {payload.get('invalid', 0)}",
-                    style="bold",
-                ),
-                title="Validation Summary",
-            )
+
+def _render_list(console: Console, payload: Dict[str, Any]) -> None:
+    tickets = payload.get("tickets", [])
+    table = Table(title="Tickets")
+    table.add_column("ID", style="cyan")
+    table.add_column("Title")
+    table.add_column("Status")
+    table.add_column("Priority")
+    table.add_column("Owner")
+    for ticket in tickets:
+        table.add_row(
+            str(ticket.get("id", "")),
+            str(ticket.get("title", "")),
+            str(ticket.get("status", "")),
+            str(ticket.get("priority", "")),
+            str(ticket.get("owner") or ""),
         )
+    console.print(table)
+
+
+def _render_events(console: Console, payload: Dict[str, Any]) -> None:
+    table = Table(title="Events")
+    table.add_column("Timestamp")
+    table.add_column("Event")
+    table.add_column("Ticket")
+    table.add_column("Actor")
+    for event in payload.get("events", []):
+        table.add_row(
+            str(event.get("timestamp", "")),
+            str(event.get("event", "")),
+            str(event.get("ticket_id", "")),
+            str(event.get("actor", "")),
+        )
+    console.print(table)
+
+
+def _render_validate(console: Console, payload: Dict[str, Any]) -> None:
+    console.print(
+        Panel(
+            Text(
+                f"Valid: {payload.get('valid', 0)} | Invalid: {payload.get('invalid', 0)}",
+                style="bold",
+            ),
+            title="Validation Summary",
+        )
+    )
+    errors = payload.get("errors", [])
+    if errors:
         table = Table(title="Validation Errors", style="red")
         table.add_column("Ticket")
         table.add_column("Errors")
-        for entry in payload["errors"]:
+        for entry in errors:
             table.add_row(str(entry.get("ticket_id")), "; ".join(entry.get("errors", [])))
         console.print(table)
-        return
 
-    if "breakdown" in payload:
-        console.print(_dict_panel(payload.get("sprint", {}), title="Sprint"))
-        breakdown = Table(title="Breakdown")
-        breakdown.add_column("State")
-        breakdown.add_column("Count")
-        for key, value in payload["breakdown"].items():
-            breakdown.add_row(str(key), str(value))
-        console.print(breakdown)
-        return
 
-    if "ticket_id" in payload:
-        console.print(_dict_panel(payload, title="Result"))
-        return
+def _render_sprint_status(console: Console, payload: Dict[str, Any]) -> None:
+    sprint = payload.get("sprint", {})
+    console.print(_dict_panel(sprint, title="Sprint"))
+    breakdown = payload.get("breakdown", {})
+    table = Table(title="Breakdown")
+    table.add_column("State")
+    table.add_column("Count")
+    for key, value in breakdown.items():
+        table.add_row(str(key), str(value))
+    console.print(table)
 
-    console.print(_dict_panel(payload, title="Result"))
+
+def _render_exec(console: Console, payload: Dict[str, Any]) -> None:
+    ticket = payload.get("ticket", {})
+    _render_ticket_detail(console, ticket)
+
+    context = payload.get("context")
+    if context:
+        console.print(Panel(Markdown(context), title="Context"))
+
+    instructions = payload.get("instructions")
+    if instructions:
+        console.print(Panel(instructions, title="Agent Instructions", style="yellow"))
 
 
 def _dict_panel(data: Dict[str, Any], title: str) -> Panel:
