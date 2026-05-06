@@ -32,6 +32,7 @@ from karya.exceptions import (
 	ValidationError,
 )
 from karya.git.integration import GitIntegration
+from karya.services.index_service import IndexService
 
 _UPDATE_FIELDS = {
 	"title",
@@ -45,6 +46,7 @@ _UPDATE_FIELDS = {
 	"dependencies",
 	"blocked_by",
 	"agent_instructions",
+	"linked_adrs",
 }
 
 _PRIORITY_ORDER = {
@@ -59,6 +61,7 @@ class TicketService:
 	def __init__(self, root: Path):
 		self.root = normalize_root(root)
 		self._git = GitIntegration(root)
+		self._index = IndexService(root)
 
 	def create(
 		self,
@@ -249,6 +252,24 @@ class TicketService:
 		self.log(ticket_id, f"Blocked: {reason}", actor=actor)
 		return ticket
 
+	def link_adr(self, ticket_id: str, adr_id: str, actor: str | None = None) -> Ticket:
+		ticket = self.get(ticket_id)
+		if adr_id not in ticket.linked_adrs:
+			ticket.linked_adrs.append(adr_id)
+		self._write_ticket(ticket)
+
+		append_event(
+			Event(
+				event="ticket_adr_linked",
+				ticket_id=ticket_id,
+				actor=actor,
+				data={"adr_id": adr_id},
+			),
+			self.root,
+		)
+		self._git.commit(f"[{ticket_id}] linked adr {adr_id} ({actor or "system"})")
+		return ticket
+
 	def get_next(self, agent: str) -> Ticket | None:
 		tickets = [
 			parse_ticket(path)
@@ -299,3 +320,4 @@ class TicketService:
 		if not ticket.path:
 			raise TicketNotFoundError("Ticket path missing.")
 		write_ticket_file(ticket.path, post.metadata, post.content)
+		self._index.update_entity("ticket", ticket.id)

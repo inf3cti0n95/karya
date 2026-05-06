@@ -25,12 +25,16 @@ TICKET_DIRS: Dict[str, Path] = {
 CONTEXT_DIR = Path(KARYA_ROOT) / "context"
 AGENTS_DIR = Path(KARYA_ROOT) / "agents"
 EPICS_DIR = Path(KARYA_ROOT) / "epics"
+ADRS_DIR = Path(KARYA_ROOT) / "adrs"
+INDEX_DIR = Path(KARYA_ROOT) / ".index"
 SPRINTS_DIR = Path(KARYA_ROOT) / "sprints"
 EVENTS_DIR = Path(KARYA_ROOT) / "events"
 LOGS_DIR = Path(KARYA_ROOT) / "logs"
 SCHEMAS_DIR = Path(KARYA_ROOT) / "schemas"
 
 _TICKET_ID_RE = re.compile(r"TICKET-(\d+)")
+_EPIC_ID_RE = re.compile(r"EPIC-(\d+)")
+_ADR_ID_RE = re.compile(r"ADR-(\d+)")
 
 
 def normalize_root(root: Path) -> Path:
@@ -51,6 +55,8 @@ def init_karya(root: Path) -> None:
 		CONTEXT_DIR,
 		AGENTS_DIR,
 		EPICS_DIR,
+		ADRS_DIR,
+		INDEX_DIR,
 		SPRINTS_DIR,
 		EVENTS_DIR,
 		LOGS_DIR,
@@ -59,19 +65,11 @@ def init_karya(root: Path) -> None:
 		(root / path).mkdir(parents=True, exist_ok=True)
 
 	_write_if_missing(
-		root / CONTEXT_DIR / "architecture.md",
-		"""# System Architecture
+		root / CONTEXT_DIR / "glossary.md",
+		"""# Glossary
 
-> Update this file as your architecture evolves.
-
-## Overview
-Describe your system here.
-
-## Services
-- List your services
-
-## Data Flow
-- Describe how data moves
+## Terms
+- Define domain terms here
 """,
 	)
 	_write_if_missing(
@@ -188,6 +186,80 @@ def load_context_files(root: Path) -> str:
 		parts.append(f"# {path.name}\n{content}\n\n---\n\n")
 
 	return "".join(parts)
+
+
+def find_epic_path(epic_id: str, root: Path) -> Path | None:
+	path = root / EPICS_DIR / f"{epic_id}.md"
+	return path if path.exists() else None
+
+
+def read_epic_file(path: Path) -> Tuple[dict, str]:
+	post = frontmatter.load(path)
+	return post.metadata, post.content
+
+
+def write_epic_file(path: Path, frontmatter_dict: dict, body: str) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp_path = path.with_suffix(path.suffix + ".tmp")
+	post = frontmatter.Post(body, **frontmatter_dict)
+
+	with tmp_path.open("wb") as handle:
+		frontmatter.dump(post, handle)
+
+	tmp_path.replace(path)
+
+
+def generate_epic_id(root: Path) -> str:
+	max_id = 0
+	for path in (root / EPICS_DIR).glob("EPIC-*.md"):
+		match = _EPIC_ID_RE.match(path.stem)
+		if match:
+			value = int(match.group(1))
+			max_id = max(max_id, value)
+
+	next_id = max_id + 1
+	return f"EPIC-{next_id:03d}"
+
+
+def list_all_epics(root: Path) -> List[Path]:
+	return sorted((root / EPICS_DIR).glob("EPIC-*.md"))
+
+
+def find_adr_path(adr_id: str, root: Path) -> Path | None:
+	path = root / ADRS_DIR / f"{adr_id}.md"
+	return path if path.exists() else None
+
+
+def read_adr_file(path: Path) -> Tuple[dict, str]:
+	post = frontmatter.load(path)
+	return post.metadata, post.content
+
+
+def write_adr_file(path: Path, frontmatter_dict: dict, body: str) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp_path = path.with_suffix(path.suffix + ".tmp")
+	post = frontmatter.Post(body, **frontmatter_dict)
+
+	with tmp_path.open("wb") as handle:
+		frontmatter.dump(post, handle)
+
+	tmp_path.replace(path)
+
+
+def generate_adr_id(root: Path) -> str:
+	max_id = 0
+	for path in (root / ADRS_DIR).glob("ADR-*.md"):
+		match = _ADR_ID_RE.match(path.stem)
+		if match:
+			value = int(match.group(1))
+			max_id = max(max_id, value)
+
+	next_id = max_id + 1
+	return f"ADR-{next_id:03d}"
+
+
+def list_all_adrs(root: Path) -> List[Path]:
+	return sorted((root / ADRS_DIR).glob("ADR-*.md"))
 
 
 def _write_if_missing(path: Path, content: str) -> None:

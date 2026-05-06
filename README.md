@@ -2,13 +2,13 @@
 
 Karya is a deterministic, file-based execution system for autonomous agents. It is not a task tracker; it is a protocol and local-first engine that stores all state in the filesystem, provides a human-first CLI with JSON support, and exposes a Python SDK.
 
-## Key principles
+## Key Principles
 
-- Filesystem is the source of truth. A ticket's folder is its state.
-- CLI outputs human-readable tables by default. Use `--json` for automation.
-- All writes go through the engine (SDK wraps services, CLI wraps SDK).
-- Every mutation triggers a Git commit.
-- Every write is schema-validated with Pydantic.
+- **Filesystem is the State**: A ticket's folder is its source of truth. No DB required.
+- **Deterministic Workflows**: Explicit state machine transitions and validation rules.
+- **Bidirectional Traceability**: Links between tickets, epics, and ADRs are automatically maintained.
+- **Git Integration**: Every mutation triggers a structured commit for a perfect audit trail.
+- **Searchable Knowledge**: SQLite FTS5 search and tag-based discovery across all entities.
 
 ## Installation
 
@@ -16,51 +16,34 @@ Karya is a deterministic, file-based execution system for autonomous agents. It 
 uv pip install -e ".[dev]"
 ```
 
-## Quick start
+## Core Entities
 
-Initialize the workspace:
+### Tickets
+The atomic unit of work. Contains tasks, acceptance criteria, and an execution log.
+- `karya create "My first ticket"`
 
-```bash
-karya init
-```
+### Epics
+Strategic groupings of tickets. Status is derived from child ticket states.
+- `karya epic create "Auth System"`
 
-Create a ticket:
+### ADRs (Architecture Decision Records)
+Append-only, immutable records of technical decisions. Once `accepted`, they are frozen.
+- `karya adr create "Use JWT"`
 
-```bash
-karya create "My first ticket" --type feature --priority medium
-```
+## Advanced Features
 
-List tickets:
+### Scoped Context
+The `karya exec` command builds a dynamic context bundle for an agent, injecting only the relevant ADRs, epics, and conventions based on the ticket's tags.
 
-```bash
-karya list --state backlog
-```
+### Tag Infrastructure
+Unified tag normalization and searching.
+- `karya search "auth" --type adr`
+- `karya find-related TICKET-007`
 
-Start work:
-
-```bash
-karya start TICKET-001 --agent backend-agent
-```
-
-Log progress:
-
-```bash
-karya log TICKET-001 "Working on it"
-```
-
-Attempt to complete (fails until acceptance criteria are checked):
-
-```bash
-karya done TICKET-001
-```
-
-## Machine Output (JSON)
-
-For agents and automation, use the `--json` flag to receive structured data.
-
-```bash
-karya --json list --state todo
-```
+### Linking
+Explicitly manage relationships between entities.
+- `karya link ticket TICKET-001 epic EPIC-001`
+- `karya links TICKET-001`
 
 ## Python SDK
 
@@ -68,27 +51,22 @@ karya --json list --state todo
 from karya import KaryaClient
 
 client = KaryaClient(root=".", agent="backend-agent")
-ticket = client.create_ticket("Build auth middleware")
-client.transition(ticket.id, "todo")
+ticket = client.create_ticket("Build auth middleware", labels=["auth"])
+client.link("ticket", ticket.id, "epic", "EPIC-001")
 client.transition(ticket.id, "in-progress")
-client.log(ticket.id, "Scaffolded modules")
 ```
 
 ## Directory layout
 
 ```
 .karya/
-	agents/
-	context/
-	events/
-	logs/
-	sprints/
-	tickets/
-		backlog/
-		todo/
-		in-progress/
-		blocked/
-		done/
+	tickets/            ← State-segregated folders
+	epics/              ← Epic entities
+	adrs/               ← Architecture Decision Records
+	context/            ← Static conventions and glossaries
+	events/             ← Append-only JSONL event logs
+	sprints/            ← Sprint definitions
+	.index/             ← SQLite FTS5 index (gitignored)
 ```
 
 ## Development

@@ -1,6 +1,16 @@
 """Karya public package API."""
 
-from .core.models import Event, Priority, Sprint, Ticket, TicketStatus, TicketType
+from .core.models import (
+	Epic,
+	EpicStatus,
+	EpicType,
+	Event,
+	Priority,
+	Sprint,
+	Ticket,
+	TicketStatus,
+	TicketType,
+)
 from .exceptions import (
 	IncompleteAcceptanceCriteria,
 	InvalidTransitionError,
@@ -12,6 +22,9 @@ from .sdk.client import KaryaClient
 
 __all__ = [
 	"KaryaClient",
+	"Epic",
+	"EpicStatus",
+	"EpicType",
 	"Ticket",
 	"Sprint",
 	"Event",

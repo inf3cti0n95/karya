@@ -3,8 +3,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from karya.core.models import Priority, Ticket, TicketStatus, TicketType
-from karya.core.parser import parse_ticket, serialize_ticket
+from karya.core.models import Epic, EpicType, Priority, Ticket, TicketStatus, TicketType
+from karya.core.parser import parse_epic, parse_ticket, serialize_epic, serialize_ticket
 
 
 def _write_ticket(path: Path) -> None:
@@ -107,3 +107,26 @@ updated_at: 2026-05-04T10:00:00Z
     assert ticket.context_text is None
     assert ticket.tasks == []
     assert ticket.execution_log == []
+
+
+def test_parse_epic_round_trip(tmp_path: Path) -> None:
+    epic = Epic(
+        id="EPIC-001",
+        title="Epic",
+        type=EpicType.FEATURE,
+        priority=Priority.HIGH,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        goal_text="Goal",
+        context_text="Context",
+        success_metrics=["One", "Two"],
+    )
+
+    serialized = serialize_epic(epic)
+    path = tmp_path / "EPIC-001.md"
+    path.write_text(serialized, encoding="utf-8")
+
+    parsed = parse_epic(path)
+    assert parsed.goal_text == "Goal"
+    assert parsed.context_text == "Context"
+    assert parsed.success_metrics == ["One", "Two"]

@@ -38,4 +38,4 @@ def test_sdk_lifecycle(tmp_path: Path) -> None:
 def test_load_context(tmp_path: Path) -> None:
     client = KaryaClient(tmp_path)
     context = client.load_context()
-    assert "System Architecture" in context
+    assert "Glossary" in context
