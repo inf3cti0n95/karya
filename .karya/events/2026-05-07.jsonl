@@ -1,2 +1,3 @@
 {"event": "ticket_created", "ticket_id": "TICKET-004", "timestamp": "2026-05-07T15:11:17.964519Z", "actor": null, "data": {}}
 {"event": "ticket_updated", "ticket_id": "TICKET-004", "timestamp": "2026-05-07T15:12:03.001260Z", "actor": null, "data": {"updates": {"blocked_by": "[TICKET-001]"}}}
+{"event": "adr_created", "ticket_id": null, "timestamp": "2026-05-07T15:20:39.563652Z", "actor": null, "data": {"adr_id": "ADR-001"}}

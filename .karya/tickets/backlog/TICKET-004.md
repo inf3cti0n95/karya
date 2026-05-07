@@ -1,6 +1,6 @@
 ---
 agents_allowed: []
-blocked_by: '[TICKET-001]'
+blocked_by: ['TICKET-001']
 created_at: '2026-05-07T15:11:17.897575Z'
 dependencies: []
 epic: null

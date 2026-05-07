@@ -1,1 +1,14 @@
-{}
+{
+  "search": [
+    {
+      "type": "adr",
+      "id": "ADR-001"
+    }
+  ],
+  "database": [
+    {
+      "type": "adr",
+      "id": "ADR-001"
+    }
+  ]
+}
