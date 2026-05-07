@@ -1,20 +1,21 @@
 ---
 agents_allowed: []
-blocked_by: ['TICKET-001']
+blocked_by:
+- TICKET-001
 created_at: '2026-05-07T15:11:17.897575Z'
 dependencies: []
 epic: null
 estimated_effort: 1
 id: TICKET-004
 labels: []
-linked_adrs: []
+linked_adrs: '[ADR-001]'
 owner: null
 priority: medium
 sprint: null
 status: backlog
 title: Blocked Ticket
 type: feature
-updated_at: '2026-05-07T15:12:02.852337Z'
+updated_at: '2026-05-07T15:20:58.109291Z'
 ---
 
 ## Context
