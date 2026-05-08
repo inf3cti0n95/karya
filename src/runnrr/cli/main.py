@@ -551,7 +551,13 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
 
     ctx = click.get_current_context(silent=True)
     command_path = ctx.command_path if ctx else ""
-    cmd_name = command_path.replace("runnrr ", "").strip()
+    
+    # Remove the root command name (e.g., 'runnrr' or 'cli') to get the relative path
+    parts = command_path.split()
+    if len(parts) > 1:
+        cmd_name = " ".join(parts[1:])
+    else:
+        cmd_name = command_path
 
     if cmd_name == "init":
         console.print(Panel(f"Runnrr workspace initialized at [cyan]{payload.get('path')}[/cyan]", title="Init", style="green"))
@@ -563,6 +569,20 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
         console.print(Panel(f"Created epic [bold cyan]{epic.get('id')}[/bold cyan]: {epic.get('title')}", title="Epic Create", style="green"))
     elif cmd_name == "list":
         _render_list(console, payload)
+    elif cmd_name == "next":
+        _render_next(console, payload.get("ticket", {}))
+    elif cmd_name == "context":
+        _render_context(console, payload)
+    elif cmd_name == "exec":
+        _render_exec(console, payload)
+    elif cmd_name == "search":
+        _render_search_results(console, payload)
+    elif cmd_name == "find-related":
+        _render_search_results(console, payload)
+    elif cmd_name == "link":
+        console.print(Panel(f"Linked [bold cyan]{payload.get('source')}[/bold cyan] ↔ [bold cyan]{payload.get('target')}[/bold cyan]", title="Link", style="green"))
+    elif cmd_name == "index rebuild":
+        console.print(Panel(payload.get("message", "Index rebuilt"), title="Index", style="green"))
     elif cmd_name == "epic list":
         _render_epic_list(console, payload)
     elif cmd_name in ("start", "done", "block"):
@@ -725,3 +745,104 @@ def _render_adr_detail(console: Console, adr: Dict[str, Any]) -> None:  # pragma
         console.print(Panel(adr["consequences_text"], title="Consequences"))
     if adr.get("alternatives_text"):
         console.print(Panel(adr["alternatives_text"], title="Alternatives"))
+
+
+def _render_next(console: Console, ticket: Dict[str, Any]) -> None:  # pragma: no cover
+    if not ticket:
+        console.print("[yellow]No executable tickets found.[/yellow]")
+        return
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    
+    table.add_row("ID", str(ticket.get("id")))
+    table.add_row("Title", str(ticket.get("title")))
+    table.add_row("Priority", str(ticket.get("priority")))
+    table.add_row("Effort", str(ticket.get("estimated_effort")))
+    table.add_row("Epic", str(ticket.get("epic") or "None"))
+    table.add_row("Tags", ", ".join(ticket.get("tags", [])))
+    table.add_row("Status", str(ticket.get("status")))
+
+    console.print(Panel(table, title="Next Ticket", style="green"))
+
+
+def _render_context(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    sections = payload.get("sections", [])
+    budget = payload.get("budget", 4000)
+    used = payload.get("tokens_used", 0)
+
+    console.print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    console.print(f" Context for {payload.get('ticket_id')}")
+    console.print(f" {used} / {budget} tokens used")
+    console.print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+    for section in sections:
+        type_ = section.get("type")
+        content = section.get("content")
+        sid = section.get("id")
+
+        if type_ == "ticket":
+            _render_ticket_detail(console, content)
+        elif type_ == "blocker":
+            console.print(f"\n[red]BLOCKER: {sid}[/red]")
+            _render_ticket_detail(console, content)
+        elif type_ in ("direct_adr", "tag_adr"):
+            console.print(f"\n[bold blue]ADR: {sid}[/bold blue]")
+            _render_adr_detail(console, content)
+        elif type_ == "epic":
+            console.print(f"\n[bold magenta]Epic: {sid}[/bold magenta]")
+            _render_epic_detail(console, content)
+        elif type_ == "convention":
+            console.print(Panel(content, title=f"Convention: {sid}", style="dim"))
+
+    excluded = payload.get("excluded", [])
+    if excluded:
+        console.print(f"\n[yellow]Excluded (budget):[/yellow] {', '.join([e['id'] for e in excluded])}")
+    
+    console.print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+
+def _render_exec(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    ticket = payload.get("ticket", {})
+    console.print(Panel(f"Targeting [bold cyan]{ticket.get('id')}[/bold cyan]: {ticket.get('title')}", title="Agent Executive Interface", style="bold blue"))
+    
+    # Render context summary
+    context = payload.get("context", {})
+    console.print(f"\n[bold]Context Overview:[/bold] {context.get('tokens_used')} tokens, {len(context.get('sections', []))} sections.")
+    
+    # Valid actions
+    actions = payload.get("valid_actions", [])
+    table = Table(title="Valid Actions", box=None)
+    table.add_column("Action", style="cyan")
+    table.add_column("Available", justify="center")
+    table.add_column("Command")
+    
+    for a in actions:
+        avail = "[green]Yes[/green]" if a.get("available") else "[red]No[/red]"
+        table.add_row(a.get("action"), avail, a.get("command"))
+    console.print(table)
+    
+    suggested = payload.get("suggested_command")
+    if suggested:
+        console.print(Panel(f"Suggested Command: [bold green]{suggested}[/bold bold green]", border_style="bright_blue"))
+
+
+def _render_search_results(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    results = payload.get("results", [])
+    count = payload.get("count", 0)
+    
+    console.print(f"\nFound {count} results\n")
+    
+    table = Table(box=None, show_header=False)
+    table.add_column("ID", style="cyan", width=12)
+    table.add_column("Summary")
+    
+    for res in results:
+        summary = f"[bold]{res.get('title')}[/bold] [{res.get('status')}]\n"
+        summary += f"[dim]Type: {res.get('type')}  Tags: {res.get('tags')}[/dim]"
+        table.add_row(res.get("id"), summary)
+        table.add_row("", "") # spacer
+        
+    console.print(table)
+
