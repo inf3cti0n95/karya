@@ -1,3 +1,21 @@
+---
+blocked_by: []
+created_at: '2026-05-08T17:24:46Z'
+dependencies: []
+epic: EPIC-001
+estimated_effort: 1
+id: TICKET-003
+linked_adrs: []
+owner: null
+priority: critical
+status: backlog
+tags:
+- phase-f
+title: Remove git from event log
+type: feature
+updated_at: '2026-05-08T17:24:46Z'
+---
+
 # TICKET-003: Remove git from event log
 
 ## Goal

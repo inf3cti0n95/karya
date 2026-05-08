@@ -1,3 +1,21 @@
+---
+blocked_by: []
+created_at: '2026-05-08T17:44:02Z'
+dependencies: []
+epic: EPIC-002
+estimated_effort: 1
+id: TICKET-016
+linked_adrs: []
+owner: null
+priority: high
+status: backlog
+tags:
+- phase-h
+title: Implement runnrr list --blocked detail view
+type: feature
+updated_at: '2026-05-08T17:44:02Z'
+---
+
 # TICKET-016: Implement runnrr list --blocked detail view
 
 ## Goal

@@ -1,3 +1,21 @@
+---
+blocked_by: []
+created_at: '2026-05-08T17:24:47Z'
+dependencies: []
+epic: EPIC-001
+estimated_effort: 1
+id: TICKET-004
+linked_adrs: []
+owner: null
+priority: critical
+status: backlog
+tags:
+- phase-f
+title: Add tests for Git Isolation
+type: feature
+updated_at: '2026-05-08T17:24:47Z'
+---
+
 # TICKET-004: Add tests for Git Isolation
 
 ## Goal
