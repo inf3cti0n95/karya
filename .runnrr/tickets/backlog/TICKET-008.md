@@ -2,7 +2,7 @@
 blocked_by: []
 created_at: '2026-05-08T17:26:46.919583Z'
 dependencies: []
-epic: null
+epic: EPIC-002
 estimated_effort: 3
 id: TICKET-008
 linked_adrs: []
@@ -13,7 +13,7 @@ tags:
 - phase-g
 title: Implement runnrr migrate command
 type: feature
-updated_at: '2026-05-08T17:26:46.919583Z'
+updated_at: '2026-05-08T17:27:00.534722Z'
 ---
 
 ## Goal
