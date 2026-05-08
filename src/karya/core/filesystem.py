@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import frontmatter
-
-from karya.core.models import Event
 
 KARYA_ROOT = ".karya"
 
@@ -23,14 +19,8 @@ TICKET_DIRS: Dict[str, Path] = {
 }
 
 CONTEXT_DIR = Path(KARYA_ROOT) / "context"
-AGENTS_DIR = Path(KARYA_ROOT) / "agents"
 EPICS_DIR = Path(KARYA_ROOT) / "epics"
 ADRS_DIR = Path(KARYA_ROOT) / "adrs"
-INDEX_DIR = Path(KARYA_ROOT) / ".index"
-SPRINTS_DIR = Path(KARYA_ROOT) / "sprints"
-EVENTS_DIR = Path(KARYA_ROOT) / "events"
-LOGS_DIR = Path(KARYA_ROOT) / "logs"
-SCHEMAS_DIR = Path(KARYA_ROOT) / "schemas"
 
 _TICKET_ID_RE = re.compile(r"TICKET-(\d+)")
 _EPIC_ID_RE = re.compile(r"EPIC-(\d+)")
@@ -44,60 +34,26 @@ def normalize_root(root: Path) -> Path:
 
 
 def init_karya(root: Path) -> None:
-	"""Create the full .karya directory tree if it doesn't exist."""
-	root_path = root / KARYA_ROOT
-	root_path.mkdir(parents=True, exist_ok=True)
+	"""Create the minimal .karya directory tree."""
+	(root / KARYA_ROOT).mkdir(parents=True, exist_ok=True)
 
 	for path in TICKET_DIRS.values():
 		(root / path).mkdir(parents=True, exist_ok=True)
 
-	for path in [
-		CONTEXT_DIR,
-		AGENTS_DIR,
-		EPICS_DIR,
-		ADRS_DIR,
-		INDEX_DIR,
-		SPRINTS_DIR,
-		EVENTS_DIR,
-		LOGS_DIR,
-		SCHEMAS_DIR,
-	]:
+	for path in [CONTEXT_DIR, EPICS_DIR, ADRS_DIR]:
 		(root / path).mkdir(parents=True, exist_ok=True)
 
-	_write_if_missing(
-		root / CONTEXT_DIR / "glossary.md",
-		"""# Glossary
-
-## Terms
-- Define domain terms here
-""",
-	)
 	_write_if_missing(
 		root / CONTEXT_DIR / "conventions.md",
 		"""# Conventions
 
-## Git Commits
-Follow conventional commits: feat:, fix:, chore:, docs:
-
-## Naming
-- Files: kebab-case
-- Functions: snake_case
-- Classes: PascalCase
-""",
-	)
-	_write_if_missing(
-		root / AGENTS_DIR / "agents.yaml",
-		"""agents:
-  default-agent:
-    description: "General purpose agent"
-    skills: []
-    max_concurrent_tickets: 1
+All APIs: {data, error, meta} envelope.
+Commits: feat(scope): message
 """,
 	)
 
 
 def find_ticket_path(ticket_id: str, root: Path) -> Path | None:
-	"""Search all status folders for a ticket by ID. Returns Path or None."""
 	for status_dir in TICKET_DIRS.values():
 		candidate = root / status_dir / f"{ticket_id}.md"
 		if candidate.exists():
@@ -105,26 +61,18 @@ def find_ticket_path(ticket_id: str, root: Path) -> Path | None:
 	return None
 
 
-def read_ticket_file(path: Path) -> Tuple[dict, str]:
-	"""Read a .md file. Returns (frontmatter_dict, body_str)."""
+def read_file(path: Path) -> Tuple[dict, str]:
 	post = frontmatter.load(path)
 	return post.metadata, post.content
 
 
-def write_ticket_file(path: Path, frontmatter_dict: dict, body: str) -> None:
-	"""Write frontmatter + body to disk atomically."""
+def write_file(path: Path, frontmatter_dict: dict, body: str) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
 	post = frontmatter.Post(body, **frontmatter_dict)
-
-	with tmp_path.open("wb") as handle:
-		frontmatter.dump(post, handle)
-
-	tmp_path.replace(path)
+	path.write_text(frontmatter.dumps(post), encoding="utf-8")
 
 
 def move_ticket(current_path: Path, new_status: str, root: Path) -> Path:
-	"""Move a ticket file to the correct status folder."""
 	if new_status not in TICKET_DIRS:
 		raise ValueError(f"Unknown status '{new_status}'.")
 
@@ -136,7 +84,6 @@ def move_ticket(current_path: Path, new_status: str, root: Path) -> Path:
 
 
 def list_tickets_in_state(status: str, root: Path) -> List[Path]:
-	"""Return all .md paths in a given status folder."""
 	if status not in TICKET_DIRS:
 		raise ValueError(f"Unknown status '{status}'.")
 
@@ -147,78 +94,37 @@ def list_tickets_in_state(status: str, root: Path) -> List[Path]:
 	return sorted(status_dir.glob("*.md"))
 
 
-def generate_ticket_id(root: Path) -> str:
-	"""Auto-increment ticket IDs across all status folders."""
+def generate_id(entity_type: str, root: Path) -> str:
+	if entity_type == "ticket":
+		pattern = _TICKET_ID_RE
+		prefix = "TICKET"
+		dirs = [root / d for d in TICKET_DIRS.values()]
+	elif entity_type == "epic":
+		pattern = _EPIC_ID_RE
+		prefix = "EPIC"
+		dirs = [root / EPICS_DIR]
+	elif entity_type == "adr":
+		pattern = _ADR_ID_RE
+		prefix = "ADR"
+		dirs = [root / ADRS_DIR]
+	else:
+		raise ValueError(f"Unknown entity type '{entity_type}'")
+
 	max_id = 0
-	for status_dir in TICKET_DIRS.values():
-		for path in (root / status_dir).glob("*.md"):
-			match = _TICKET_ID_RE.match(path.stem)
+	for d in dirs:
+		if not d.exists():
+			continue
+		for path in d.glob(f"{prefix}-*.md"):
+			match = pattern.match(path.stem)
 			if match:
-				value = int(match.group(1))
-				max_id = max(max_id, value)
+				max_id = max(max_id, int(match.group(1)))
 
-	next_id = max_id + 1
-	return f"TICKET-{next_id:03d}"
-
-
-def append_event(event: Event, root: Path) -> None:
-	"""Append a JSON line to .karya/events/YYYY-MM-DD.jsonl."""
-	events_dir = root / EVENTS_DIR
-	events_dir.mkdir(parents=True, exist_ok=True)
-
-	date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-	path = events_dir / f"{date_str}.jsonl"
-	payload = event.model_dump(mode="json")
-
-	with path.open("a", encoding="utf-8") as handle:
-		handle.write(json.dumps(payload) + "\n")
-
-
-def load_context_files(root: Path) -> str:
-	"""Read all .md files in .karya/context/ and return merged string."""
-	context_dir = root / CONTEXT_DIR
-	if not context_dir.exists():
-		return ""
-
-	parts: list[str] = []
-	for path in sorted(context_dir.glob("*.md")):
-		content = path.read_text(encoding="utf-8")
-		parts.append(f"# {path.name}\n{content}\n\n---\n\n")
-
-	return "".join(parts)
+	return f"{prefix}-{(max_id + 1):03d}"
 
 
 def find_epic_path(epic_id: str, root: Path) -> Path | None:
 	path = root / EPICS_DIR / f"{epic_id}.md"
 	return path if path.exists() else None
-
-
-def read_epic_file(path: Path) -> Tuple[dict, str]:
-	post = frontmatter.load(path)
-	return post.metadata, post.content
-
-
-def write_epic_file(path: Path, frontmatter_dict: dict, body: str) -> None:
-	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	post = frontmatter.Post(body, **frontmatter_dict)
-
-	with tmp_path.open("wb") as handle:
-		frontmatter.dump(post, handle)
-
-	tmp_path.replace(path)
-
-
-def generate_epic_id(root: Path) -> str:
-	max_id = 0
-	for path in (root / EPICS_DIR).glob("EPIC-*.md"):
-		match = _EPIC_ID_RE.match(path.stem)
-		if match:
-			value = int(match.group(1))
-			max_id = max(max_id, value)
-
-	next_id = max_id + 1
-	return f"EPIC-{next_id:03d}"
 
 
 def list_all_epics(root: Path) -> List[Path]:
@@ -228,34 +134,6 @@ def list_all_epics(root: Path) -> List[Path]:
 def find_adr_path(adr_id: str, root: Path) -> Path | None:
 	path = root / ADRS_DIR / f"{adr_id}.md"
 	return path if path.exists() else None
-
-
-def read_adr_file(path: Path) -> Tuple[dict, str]:
-	post = frontmatter.load(path)
-	return post.metadata, post.content
-
-
-def write_adr_file(path: Path, frontmatter_dict: dict, body: str) -> None:
-	path.parent.mkdir(parents=True, exist_ok=True)
-	tmp_path = path.with_suffix(path.suffix + ".tmp")
-	post = frontmatter.Post(body, **frontmatter_dict)
-
-	with tmp_path.open("wb") as handle:
-		frontmatter.dump(post, handle)
-
-	tmp_path.replace(path)
-
-
-def generate_adr_id(root: Path) -> str:
-	max_id = 0
-	for path in (root / ADRS_DIR).glob("ADR-*.md"):
-		match = _ADR_ID_RE.match(path.stem)
-		if match:
-			value = int(match.group(1))
-			max_id = max(max_id, value)
-
-	next_id = max_id + 1
-	return f"ADR-{next_id:03d}"
 
 
 def list_all_adrs(root: Path) -> List[Path]:

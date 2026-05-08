@@ -24,30 +24,26 @@ from karya.core.models import (
 
 _SECTION_HEADER = re.compile(r"^##\s+(.*)$")
 _CHECKBOX = re.compile(r"^- \[( |x|X)\] (.+)$")
-_EXECUTION_LOG = re.compile(r"<!--\s*(\[[\s\S]*?\])\s*-->")
 
-_ORDERED_SECTIONS = [
-	"Context",
+_TICKET_SECTIONS = [
 	"Goal",
-	"Scope",
-	"🪜 Tasks",
-	"🧪 Acceptance Criteria",
-	"📜 Execution Log",
-	"🧭 Agent Instructions",
+	"Tasks",
+	"Acceptance Criteria",
+	"Log",
+	"Notes",
 ]
 
 _EPIC_SECTIONS = [
-	"🎯 Goal",
-	"🧠 Context",
-	"✅ Success Metrics",
-	"📝 Notes",
+	"Goal",
+	"Success Metrics",
+	"Notes",
 ]
 
 _ADR_SECTIONS = [
 	"Context",
 	"Decision",
 	"Consequences",
-	"Alternatives Considered",
+	"Alternatives",
 ]
 
 
@@ -81,81 +77,78 @@ def _parse_checkbox_section(section: str) -> list[dict]:
 	return items
 
 
-def _parse_execution_log(section: str) -> list[dict]:
-	match = _EXECUTION_LOG.search(section)
-	if not match:
-		return []
-	try:
-		data = json.loads(match.group(1))
-	except json.JSONDecodeError:
-		return []
-	return data if isinstance(data, list) else []
+def _parse_bullets(section: str) -> list[str]:
+	items: list[str] = []
+	for line in section.splitlines():
+		line = line.strip()
+		if line.startswith("- "):
+			items.append(line[2:].strip())
+	return items
+
+
+def _format_bullets(items: list[str]) -> str:
+	return "\n".join([f"- {item}" for item in items])
+
+
+def _format_checkbox_section(items: list[dict]) -> str:
+	lines: list[str] = []
+	for item in items:
+		done = "x" if item.get("done") else " "
+		text = item.get("text", "")
+		lines.append(f"- [{done}] {text}")
+	return "\n".join(lines)
 
 
 def parse_ticket(path: Path) -> Ticket:
 	post = frontmatter.load(path)
 	sections = _split_sections(post.content)
 
-	frontmatter_data = _coerce_frontmatter(post.metadata)
-	ticket = Ticket(**frontmatter_data)
-	ticket.context_text = sections.get("Context") or None
+	metadata = dict(post.metadata)
+	if "status" in metadata:
+		metadata["status"] = TicketStatus(metadata["status"])
+	if "type" in metadata:
+		metadata["type"] = TicketType(metadata["type"])
+	if "priority" in metadata:
+		metadata["priority"] = Priority(metadata["priority"])
+	for field in ("created_at", "updated_at"):
+		if isinstance(metadata.get(field), str):
+			metadata[field] = datetime.fromisoformat(metadata[field].replace("Z", "+00:00"))
+
+	ticket = Ticket(**metadata)
 	ticket.goal_text = sections.get("Goal") or None
-	ticket.scope_text = sections.get("Scope") or None
-
-	tasks_section = sections.get("🪜 Tasks", "")
-	acceptance_section = sections.get("🧪 Acceptance Criteria", "")
-	execution_section = sections.get("📜 Execution Log", "")
-
-	ticket.tasks = _parse_checkbox_section(tasks_section)
-	ticket.acceptance_criteria = _parse_checkbox_section(acceptance_section)
-	ticket.execution_log = _parse_execution_log(execution_section)
-
-	agent_instructions = sections.get("🧭 Agent Instructions") or sections.get(
-		"Agent Instructions"
-	)
-	ticket.agent_instructions = agent_instructions or None
+	ticket.tasks = _parse_checkbox_section(sections.get("Tasks", ""))
+	ticket.acceptance_criteria = _parse_checkbox_section(sections.get("Acceptance Criteria", ""))
+	ticket.execution_log = _parse_log_section(sections.get("Log", ""))
+	ticket.notes_text = sections.get("Notes") or None
 	ticket.path = path
 	return ticket
 
 
 def serialize_ticket(ticket: Ticket) -> str:
 	ticket.updated_at = datetime.now(timezone.utc)
-
 	frontmatter_dict = ticket.model_dump(
 		exclude={
-			"context_text",
 			"goal_text",
-			"scope_text",
 			"tasks",
 			"acceptance_criteria",
 			"execution_log",
-			"agent_instructions",
+			"notes_text",
 			"path",
 		},
 		mode="json",
 	)
 
-	sections: list[str] = []
-	context = ticket.context_text or ""
-	goal = ticket.goal_text or ""
-	scope = ticket.scope_text or ""
-	tasks = _format_checkbox_section(ticket.tasks)
-	acceptance = _format_checkbox_section(ticket.acceptance_criteria)
-	execution = _format_execution_log(ticket.execution_log)
-	instructions = ticket.agent_instructions or ""
-
 	content_map = {
-		"Context": context,
-		"Goal": goal,
-		"Scope": scope,
-		"🪜 Tasks": tasks,
-		"🧪 Acceptance Criteria": acceptance,
-		"📜 Execution Log": execution,
-		"🧭 Agent Instructions": instructions,
+		"Goal": ticket.goal_text or "",
+		"Tasks": _format_checkbox_section(ticket.tasks),
+		"Acceptance Criteria": _format_checkbox_section(ticket.acceptance_criteria),
+		"Log": _format_log_section(ticket.execution_log),
+		"Notes": ticket.notes_text or "",
 	}
 
-	for header in _ORDERED_SECTIONS:
-		sections.append(f"## {header}\n\n{content_map.get(header, "").strip()}\n")
+	sections: list[str] = []
+	for header in _TICKET_SECTIONS:
+		sections.append(f"## {header}\n\n{content_map.get(header, '').strip()}\n")
 
 	body = "\n".join(sections).strip() + "\n"
 	post = frontmatter.Post(body, **frontmatter_dict)
@@ -165,15 +158,20 @@ def serialize_ticket(ticket: Ticket) -> str:
 def parse_epic(path: Path) -> Epic:
 	post = frontmatter.load(path)
 	sections = _split_sections(post.content)
-	frontmatter_data = _coerce_epic_frontmatter(post.metadata)
+	metadata = dict(post.metadata)
+	
+	if "type" in metadata:
+		metadata["type"] = EpicType(metadata["type"])
+	if "priority" in metadata:
+		metadata["priority"] = Priority(metadata["priority"])
+	for field in ("created_at", "updated_at"):
+		if isinstance(metadata.get(field), str):
+			metadata[field] = datetime.fromisoformat(metadata[field].replace("Z", "+00:00"))
 
-	epic = Epic(**frontmatter_data)
-	epic.goal_text = sections.get("🎯 Goal") or sections.get("Goal") or None
-	epic.context_text = sections.get("🧠 Context") or sections.get("Context") or None
-
-	metrics_section = sections.get("✅ Success Metrics") or sections.get("Success Metrics") or ""
-	epic.success_metrics = _parse_bullets(metrics_section)
-
+	epic = Epic(**metadata)
+	epic.goal_text = sections.get("Goal") or None
+	epic.success_metrics = _parse_bullets(sections.get("Success Metrics", ""))
+	epic.notes_text = sections.get("Notes") or None
 	epic.path = path
 	return epic
 
@@ -183,28 +181,22 @@ def serialize_epic(epic: Epic) -> str:
 	frontmatter_dict = epic.model_dump(
 		exclude={
 			"goal_text",
-			"context_text",
 			"success_metrics",
-			"status",
-			"progress",
+			"notes_text",
 			"path",
 		},
 		mode="json",
 	)
 
-	if epic.status == EpicStatus.ARCHIVED:
-		frontmatter_dict["status"] = EpicStatus.ARCHIVED.value
-
-	sections: list[str] = []
 	content_map = {
-		"🎯 Goal": epic.goal_text or "",
-		"🧠 Context": epic.context_text or "",
-		"✅ Success Metrics": _format_bullets(epic.success_metrics),
-		"📝 Notes": "",
+		"Goal": epic.goal_text or "",
+		"Success Metrics": _format_bullets(epic.success_metrics),
+		"Notes": epic.notes_text or "",
 	}
 
+	sections: list[str] = []
 	for header in _EPIC_SECTIONS:
-		sections.append(f"## {header}\n\n{content_map.get(header, "").strip()}\n")
+		sections.append(f"## {header}\n\n{content_map.get(header, '').strip()}\n")
 
 	body = "\n".join(sections).strip() + "\n"
 	post = frontmatter.Post(body, **frontmatter_dict)
@@ -214,16 +206,18 @@ def serialize_epic(epic: Epic) -> str:
 def parse_adr(path: Path) -> ADR:
 	post = frontmatter.load(path)
 	sections = _split_sections(post.content)
-	frontmatter_data = _coerce_adr_frontmatter(post.metadata)
+	metadata = dict(post.metadata)
 
-	adr = ADR(**frontmatter_data)
+	if "status" in metadata:
+		metadata["status"] = ADRStatus(metadata["status"])
+	if isinstance(metadata.get("date"), str):
+		metadata["date"] = date.fromisoformat(metadata["date"])
+
+	adr = ADR(**metadata)
 	adr.context_text = sections.get("Context") or None
 	adr.decision_text = sections.get("Decision") or None
 	adr.consequences_text = sections.get("Consequences") or None
-	adr.alternatives_text = (
-		sections.get("Alternatives Considered") or sections.get("Alternatives") or None
-	)
-
+	adr.alternatives_text = sections.get("Alternatives") or None
 	adr.path = path
 	return adr
 
@@ -240,110 +234,35 @@ def serialize_adr(adr: ADR) -> str:
 		mode="json",
 	)
 
-	sections: list[str] = []
 	content_map = {
 		"Context": adr.context_text or "",
 		"Decision": adr.decision_text or "",
 		"Consequences": adr.consequences_text or "",
-		"Alternatives Considered": adr.alternatives_text or "",
+		"Alternatives": adr.alternatives_text or "",
 	}
 
+	sections: list[str] = []
 	for header in _ADR_SECTIONS:
-		sections.append(f"## {header}\n\n{content_map.get(header, "").strip()}\n")
+		sections.append(f"## {header}\n\n{content_map.get(header, '').strip()}\n")
 
 	body = "\n".join(sections).strip() + "\n"
 	post = frontmatter.Post(body, **frontmatter_dict)
 	return frontmatter.dumps(post)
 
 
-def _coerce_frontmatter(frontmatter_data: dict) -> dict:
-	data = dict(frontmatter_data)
-
-	status = data.get("status")
-	if isinstance(status, str):
-		data["status"] = TicketStatus(status)
-
-	ticket_type = data.get("type")
-	if isinstance(ticket_type, str):
-		data["type"] = TicketType(ticket_type)
-
-	priority = data.get("priority")
-	if isinstance(priority, str):
-		data["priority"] = Priority(priority)
-
-	for field in ("created_at", "updated_at"):
-		value = data.get(field)
-		if isinstance(value, str):
-			data[field] = _parse_datetime(value)
-
-	return data
-
-
-def _coerce_epic_frontmatter(frontmatter_data: dict) -> dict:
-	data = dict(frontmatter_data)
-
-	epic_type = data.get("type")
-	if isinstance(epic_type, str):
-		data["type"] = EpicType(epic_type)
-
-	priority = data.get("priority")
-	if isinstance(priority, str):
-		data["priority"] = Priority(priority)
-
-	status = data.get("status")
-	if isinstance(status, str):
-		data["status"] = EpicStatus(status)
-
-	for field in ("created_at", "updated_at"):
-		value = data.get(field)
-		if isinstance(value, str):
-			data[field] = _parse_datetime(value)
-
-	return data
-
-
-def _coerce_adr_frontmatter(frontmatter_data: dict) -> dict:
-	data = dict(frontmatter_data)
-
-	status = data.get("status")
-	if isinstance(status, str):
-		data["status"] = ADRStatus(status)
-
-	for field in ("date",):
-		value = data.get(field)
-		if isinstance(value, str):
-			data[field] = date.fromisoformat(value)
-
-	return data
-
-
-def _parse_datetime(value: str) -> datetime:
-	normalized = value.replace("Z", "+00:00")
-	return datetime.fromisoformat(normalized)
-
-
-def _format_checkbox_section(items: list[dict]) -> str:
-	lines: list[str] = []
-	for item in items:
-		done = "x" if item.get("done") else " "
-		text = item.get("text", "")
-		lines.append(f"- [{done}] {text}")
-	return "\n".join(lines)
-
-
-def _format_execution_log(items: list[dict]) -> str:
-	payload = json.dumps(items, separators=(",", ":"), default=str)
-	return f"<!-- {payload} -->"
-
-
-def _parse_bullets(section: str) -> list[str]:
-	items: list[str] = []
+def _parse_log_section(section: str) -> list[dict]:
+	# Format: [2026-05-04T11:20Z] Message
+	entries = []
+	pattern = re.compile(r"^\[(.*?)\] (.*)$")
 	for line in section.splitlines():
-		line = line.strip()
-		if line.startswith("- "):
-			items.append(line[2:].strip())
-	return items
+		match = pattern.match(line.strip())
+		if match:
+			entries.append({"timestamp": match.group(1), "message": match.group(2)})
+	return entries
 
 
-def _format_bullets(items: list[str]) -> str:
-	return "\n".join([f"- {item}" for item in items])
+def _format_log_section(entries: list[dict]) -> str:
+	lines = []
+	for entry in entries:
+		lines.append(f"[{entry.get('timestamp')}] {entry.get('message')}")
+	return "\n".join(lines)
