@@ -2,7 +2,7 @@
 blocked_by: []
 created_at: '2026-05-08T17:28:02.071672Z'
 dependencies: []
-epic: null
+epic: EPIC-002
 estimated_effort: 2
 id: TICKET-015
 linked_adrs: []
@@ -13,7 +13,7 @@ tags:
 - phase-h
 title: Enhance runnrr list default view
 type: feature
-updated_at: '2026-05-08T17:28:02.071672Z'
+updated_at: '2026-05-08T17:28:19.129393Z'
 ---
 
 ## Goal
