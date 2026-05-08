@@ -2,7 +2,7 @@
 blocked_by: []
 created_at: '2026-05-08T17:24:35.866066Z'
 dependencies: []
-epic: null
+epic: EPIC-001
 estimated_effort: 1
 id: TICKET-001
 linked_adrs: []
@@ -13,7 +13,7 @@ tags:
 - phase-f
 title: Remove gitpython dependency
 type: feature
-updated_at: '2026-05-08T17:24:35.866066Z'
+updated_at: '2026-05-08T17:25:08.480804Z'
 ---
 
 ## Goal
