@@ -2,7 +2,7 @@
 blocked_by: []
 created_at: '2026-05-08T17:28:01.279817Z'
 dependencies: []
-epic: null
+epic: EPIC-002
 estimated_effort: 1
 id: TICKET-014
 linked_adrs: []
@@ -13,7 +13,7 @@ tags:
 - phase-h
 title: Remove exec and next commands
 type: feature
-updated_at: '2026-05-08T17:28:01.279817Z'
+updated_at: '2026-05-08T17:28:18.368072Z'
 ---
 
 ## Goal
