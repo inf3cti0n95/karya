@@ -1,1 +1,0 @@
-"""Git integration for Karya."""

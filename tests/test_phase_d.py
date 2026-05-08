@@ -4,8 +4,8 @@ import pytest
 import json
 from pathlib import Path
 from click.testing import CliRunner
-from karya.cli.main import cli
-from karya.sdk.client import KaryaClient
+from runnrr.cli.main import cli
+from runnrr.sdk.client import RunnrrClient
 
 @pytest.fixture
 def runner():
@@ -14,7 +14,7 @@ def runner():
 def test_valid_actions_todo(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         t1 = client.create_ticket("T1")
         client.transition(t1.id, "todo")
         
@@ -34,7 +34,7 @@ def test_valid_actions_todo(runner, tmp_path):
 def test_valid_actions_blocked_start(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         b1 = client.create_ticket("B1")
         client.transition(b1.id, "todo")
         t1 = client.create_ticket("T1")
@@ -52,7 +52,7 @@ def test_valid_actions_blocked_start(runner, tmp_path):
 def test_valid_actions_in_progress(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         t1 = client.create_ticket("T1")
         client.transition(t1.id, "todo")
         client.transition(t1.id, "in-progress")
@@ -73,10 +73,10 @@ def test_valid_actions_in_progress(runner, tmp_path):
         assert not done_action.get("available", True)
         assert "AC1" in done_action.get("blocked_by", [])[0]
 
-def test_karya_exec(runner, tmp_path):
+def test_runnrr_exec(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         t1 = client.create_ticket("T1")
         client.transition(t1.id, "todo")
         
@@ -90,4 +90,4 @@ def test_karya_exec(runner, tmp_path):
         assert "suggested_command" in data
         
         assert data["ticket"]["id"] == t1.id
-        assert data["suggested_command"] == f"karya start {t1.id}"
+        assert data["suggested_command"] == f"runnrr start {t1.id}"

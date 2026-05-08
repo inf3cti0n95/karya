@@ -3,7 +3,7 @@
 from datetime import datetime, date, timezone
 import pytest
 from pydantic import ValidationError
-from karya.core.models import Ticket, TicketStatus, TicketType, Priority, Epic, EpicType, ADR, ADRStatus
+from runnrr.core.models import Ticket, TicketStatus, TicketType, Priority, Epic, EpicType, ADR, ADRStatus
 
 def test_ticket_model_minimal():
     now = datetime.now(timezone.utc)

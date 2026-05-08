@@ -3,7 +3,7 @@ requires = ["uv_build>=0.9.25,<0.10.0"]
 build-backend = "uv_build"
 
 [project]
-name = "karya"
+name = "runnrr"
 version = "0.1.0"
 description = "Deterministic, file-based execution system for autonomous agents"
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-karya = "karya.cli.main:cli"
+runnrr = "runnrr.cli.main:cli"
 
 [dependency-groups]
 dev = [

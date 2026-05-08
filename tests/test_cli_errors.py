@@ -3,8 +3,8 @@
 import pytest
 import json
 from click.testing import CliRunner
-from karya.cli.main import cli
-from karya.core.models import TicketStatus
+from runnrr.cli.main import cli
+from runnrr.core.models import TicketStatus
 
 @pytest.fixture
 def runner():
@@ -59,8 +59,8 @@ def test_cli_done_incomplete_ac(runner, tmp_path):
         assert json.loads(r3.output)["status"] == "ok"
         
         # Manually add an incomplete AC
-        from karya.sdk.client import KaryaClient
-        c = KaryaClient(".")
+        from runnrr.sdk.client import RunnrrClient
+        c = RunnrrClient(".")
         t = c.get_ticket(ticket_id)
         t.acceptance_criteria = [{"text": "AC1", "done": False}]
         c._tickets._save(t)

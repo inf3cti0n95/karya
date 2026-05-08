@@ -1,8 +1,8 @@
 """Edge cases for services."""
 
 import pytest
-from karya.services.ticket_service import TicketService
-from karya.exceptions import TicketNotFoundError, IncompleteAcceptanceCriteria, ValidationError
+from runnrr.services.ticket_service import TicketService
+from runnrr.exceptions import TicketNotFoundError, IncompleteAcceptanceCriteria, ValidationError
 
 def test_ticket_service_not_found(tmp_path):
     svc = TicketService(tmp_path)

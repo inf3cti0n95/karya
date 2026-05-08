@@ -2,7 +2,7 @@
 
 import pytest
 from click.testing import CliRunner
-from karya.cli.main import cli
+from runnrr.cli.main import cli
 import json
 
 @pytest.fixture

@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Karya workspace state
-.karya/
+# Runnrr workspace state
+.runnrr/

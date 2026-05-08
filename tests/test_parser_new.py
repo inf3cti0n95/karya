@@ -3,8 +3,8 @@
 from datetime import datetime, date, timezone
 from pathlib import Path
 import pytest
-from karya.core.models import Ticket, TicketStatus, TicketType, Priority, Epic, ADR, ADRStatus
-from karya.core.parser import parse_ticket, serialize_ticket, parse_epic, serialize_epic, parse_adr, serialize_adr
+from runnrr.core.models import Ticket, TicketStatus, TicketType, Priority, Epic, ADR, ADRStatus
+from runnrr.core.parser import parse_ticket, serialize_ticket, parse_epic, serialize_epic, parse_adr, serialize_adr
 
 def test_ticket_roundtrip(tmp_path):
     now = datetime.now(timezone.utc).replace(microsecond=0)

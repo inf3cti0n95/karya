@@ -4,9 +4,9 @@ import pytest
 import json
 from pathlib import Path
 from click.testing import CliRunner
-from karya.cli.main import cli
-from karya.sdk.client import KaryaClient
-from karya.core.models import TicketStatus, Priority, TicketType, EpicType, ADRStatus
+from runnrr.cli.main import cli
+from runnrr.sdk.client import RunnrrClient
+from runnrr.core.models import TicketStatus, Priority, TicketType, EpicType, ADRStatus
 
 @pytest.fixture
 def runner():
@@ -15,7 +15,7 @@ def runner():
 def test_next_ticket_logic(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         # T1: low priority, effort 1, todo
         t1 = client.create_ticket("T1", priority=Priority.LOW, estimated_effort=1)
@@ -51,7 +51,7 @@ def test_next_ticket_logic(runner, tmp_path):
 def test_context_logic(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         # Create an epic
         epic = client.create_epic("Epic 1", goal="Epic Goal")

@@ -4,9 +4,9 @@ import pytest
 import json
 from pathlib import Path
 from click.testing import CliRunner
-from karya.cli.main import cli
-from karya.sdk.client import KaryaClient
-from karya.core.models import Priority
+from runnrr.cli.main import cli
+from runnrr.sdk.client import RunnrrClient
+from runnrr.core.models import Priority
 
 @pytest.fixture
 def runner():
@@ -15,7 +15,7 @@ def runner():
 def test_tag_normalization(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         # Create ticket with weird tags
         t1 = client.create_ticket("T1", tags=["Auth Service", "JWT_token", "api@#$!"])
@@ -30,7 +30,7 @@ def test_tag_normalization(runner, tmp_path):
 def test_search_and_rebuild(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         client.create_ticket("JWT authentication", goal="Implement JWT login")
         client.create_epic("Auth & Authorization", goal="Secure stateless auth")
@@ -51,7 +51,7 @@ def test_search_and_rebuild(runner, tmp_path):
         assert "adr" in types
         
         # Delete DB and search again (should auto-rebuild or we manually rebuild)
-        db_path = tmp_path / ".karya" / ".db"
+        db_path = tmp_path / ".runnrr" / ".db"
         if db_path.exists():
             db_path.unlink()
             
@@ -63,7 +63,7 @@ def test_search_and_rebuild(runner, tmp_path):
 def test_find_related(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         t1 = client.create_ticket("T1", tags=["auth", "jwt"])
         t2 = client.create_ticket("T2", tags=["auth", "database"])
@@ -86,7 +86,7 @@ def test_find_related(runner, tmp_path):
 def test_linking(runner, tmp_path):
     with runner.isolated_filesystem(tmp_path):
         runner.invoke(cli, ["--json", "init"])
-        client = KaryaClient(".")
+        client = RunnrrClient(".")
         
         t1 = client.create_ticket("T1")
         adr1 = client.create_adr("A1", context="C", decision="D")

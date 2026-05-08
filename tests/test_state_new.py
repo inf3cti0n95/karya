@@ -2,9 +2,9 @@
 
 import pytest
 from datetime import datetime, timezone
-from karya.core.models import Ticket, TicketStatus
-from karya.core.state import validate_transition, can_start, can_complete
-from karya.exceptions import InvalidTransitionError
+from runnrr.core.models import Ticket, TicketStatus
+from runnrr.core.state import validate_transition, can_start, can_complete
+from runnrr.exceptions import InvalidTransitionError
 
 def test_validate_transitions():
     # Valid

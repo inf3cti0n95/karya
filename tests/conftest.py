@@ -1,20 +1,20 @@
-"""Shared pytest fixtures for Karya."""
+"""Shared pytest fixtures for Runnrr."""
 
 from pathlib import Path
 
 import pytest
 
-from karya import KaryaClient
+from runnrr import RunnrrClient
 
 
 @pytest.fixture
-def karya_root(tmp_path: Path) -> Path:
-	root = tmp_path / ".karya"
-	client = KaryaClient(root=root)
+def runnrr_root(tmp_path: Path) -> Path:
+	root = tmp_path / ".runnrr"
+	client = RunnrrClient(root=root)
 	client.init()
 	return root
 
 
 @pytest.fixture
-def client(karya_root: Path) -> KaryaClient:
-	return KaryaClient(root=karya_root, agent="test-agent")
+def client(runnrr_root: Path) -> RunnrrClient:
+	return RunnrrClient(root=runnrr_root, agent="test-agent")

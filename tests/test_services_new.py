@@ -2,10 +2,10 @@
 
 import pytest
 from pathlib import Path
-from karya.services.ticket_service import TicketService
-from karya.services.epic_service import EpicService
-from karya.services.adr_service import ADRService
-from karya.core.models import TicketStatus, ADRStatus
+from runnrr.services.ticket_service import TicketService
+from runnrr.services.epic_service import EpicService
+from runnrr.services.adr_service import ADRService
+from runnrr.core.models import TicketStatus, ADRStatus
 
 @pytest.fixture
 def ticket_service(tmp_path):

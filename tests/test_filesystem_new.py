@@ -2,8 +2,8 @@
 
 import pytest
 from pathlib import Path
-from karya.core.filesystem import (
-    init_karya, 
+from runnrr.core.filesystem import (
+    init_runnrr, 
     generate_id, 
     find_ticket_path, 
     list_tickets_in_state,
@@ -12,16 +12,16 @@ from karya.core.filesystem import (
     ADRS_DIR
 )
 
-def test_init_karya(tmp_path):
-    init_karya(tmp_path)
-    assert (tmp_path / ".karya").exists()
-    assert (tmp_path / ".karya/tickets/backlog").exists()
-    assert (tmp_path / ".karya/epics").exists()
-    assert (tmp_path / ".karya/adrs").exists()
-    assert (tmp_path / ".karya/context/conventions.md").exists()
+def test_init_runnrr(tmp_path):
+    init_runnrr(tmp_path)
+    assert (tmp_path / ".runnrr").exists()
+    assert (tmp_path / ".runnrr/tickets/backlog").exists()
+    assert (tmp_path / ".runnrr/epics").exists()
+    assert (tmp_path / ".runnrr/adrs").exists()
+    assert (tmp_path / ".runnrr/context/conventions.md").exists()
 
 def test_generate_id(tmp_path):
-    init_karya(tmp_path)
+    init_runnrr(tmp_path)
     # Tickets
     assert generate_id("ticket", tmp_path) == "TICKET-001"
     (tmp_path / TICKET_DIRS["backlog"] / "TICKET-001.md").touch()
@@ -38,7 +38,7 @@ def test_generate_id(tmp_path):
     assert generate_id("adr", tmp_path) == "ADR-002"
 
 def test_find_ticket_path(tmp_path):
-    init_karya(tmp_path)
+    init_runnrr(tmp_path)
     path = tmp_path / TICKET_DIRS["in-progress"] / "TICKET-005.md"
     path.touch()
     
@@ -47,7 +47,7 @@ def test_find_ticket_path(tmp_path):
     assert find_ticket_path("TICKET-999", tmp_path) is None
 
 def test_list_tickets_in_state(tmp_path):
-    init_karya(tmp_path)
+    init_runnrr(tmp_path)
     (tmp_path / TICKET_DIRS["todo"] / "TICKET-001.md").touch()
     (tmp_path / TICKET_DIRS["todo"] / "TICKET-002.md").touch()
     
