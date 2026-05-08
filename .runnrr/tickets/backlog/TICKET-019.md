@@ -1,35 +1,11 @@
----
-blocked_by: []
-created_at: '2026-05-08T17:28:50.661227Z'
-dependencies: []
-epic: EPIC-002
-estimated_effort: 1
-id: TICKET-019
-linked_adrs: []
-owner: null
-priority: medium
-status: backlog
-tags:
-- phase-i
-title: Implement runnrr init guard
-type: feature
-updated_at: '2026-05-08T17:29:03.319441Z'
----
+# TICKET-019: Implement runnrr init guard
 
 ## Goal
-
-
+Prevent nested or duplicate runnrr initialization by checking for an existing `.runnrr/` directory in the current or any parent directory.
 
 ## Tasks
-
-
+- [ ] Update `runnrr init` logic to use `_find_runnrr_root()`.
+- [ ] If an existing `.runnrr/` is found, print an error and exit.
 
 ## Acceptance Criteria
-
-
-
-## Log
-
-
-
-## Notes
+- [ ] `runnrr init` fails gracefully with a clear error message if the project is already initialized.
