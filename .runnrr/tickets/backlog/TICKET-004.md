@@ -2,7 +2,7 @@
 blocked_by: []
 created_at: '2026-05-08T17:24:38.241774Z'
 dependencies: []
-epic: null
+epic: EPIC-001
 estimated_effort: 1
 id: TICKET-004
 linked_adrs: []
@@ -13,7 +13,7 @@ tags:
 - phase-f
 title: Add tests for Git Isolation
 type: feature
-updated_at: '2026-05-08T17:24:38.241774Z'
+updated_at: '2026-05-08T17:25:10.953104Z'
 ---
 
 ## Goal
