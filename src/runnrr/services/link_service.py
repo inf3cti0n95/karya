@@ -1,76 +1,54 @@
-"""Link service for managing bidirectional relationships."""
+"""Link service for managing relationships between entities using SQLite."""
+
+from __future__ import annotations
 
 from pathlib import Path
-
-from runnrr.core.filesystem import normalize_root
-from runnrr.services.ticket_service import TicketService
-from runnrr.services.epic_service import EpicService
-from runnrr.services.adr_service import ADRService
-from runnrr.exceptions import RunnrrError
+from runnrr.core.db import Database, emit_event
 
 class LinkService:
-    def __init__(self, root: Path):
-        self.root = normalize_root(root)
-        self._tickets = TicketService(self.root)
-        self._epics = EpicService(self.root)
-        self._adrs = ADRService(self.root)
+    def __init__(self, db: Database):
+        self.db = db
 
     def link(self, source_id: str, target_id: str, actor: str | None = None) -> None:
-        # Determine types based on prefixes
-        src_type = self._get_type(source_id)
-        tgt_type = self._get_type(target_id)
+        """Create a bidirectional link between two entities."""
+        source_type = self._detect_type(source_id)
+        target_type = self._detect_type(target_id)
         
-        if src_type == "ticket" and tgt_type == "adr":
-            self._link_ticket_adr(source_id, target_id, actor)
-        elif src_type == "adr" and tgt_type == "ticket":
-            self._link_ticket_adr(target_id, source_id, actor)
-        elif src_type == "ticket" and tgt_type == "epic":
-            self._link_ticket_epic(source_id, target_id, actor)
-        elif src_type == "epic" and tgt_type == "ticket":
-            self._link_ticket_epic(target_id, source_id, actor)
-        elif src_type == "adr" and tgt_type == "epic":
-            self._link_adr_epic(source_id, target_id, actor)
-        elif src_type == "epic" and tgt_type == "adr":
-            self._link_adr_epic(target_id, source_id, actor)
-        else:
-            raise RunnrrError(f"Linking {src_type} to {tgt_type} is not supported.")
+        with self.db.transaction() as conn:
+            # Check if already exists
+            exists = conn.execute(
+                "SELECT 1 FROM links WHERE source_type = ? AND source_id = ? AND target_type = ? AND target_id = ?",
+                (source_type, source_id, target_type, target_id)
+            ).fetchone()
+            
+            if exists:
+                return
 
-    def _get_type(self, entity_id: str) -> str:
+            conn.execute(
+                "INSERT INTO links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
+                (source_type, source_id, target_type, target_id)
+            )
+            conn.execute(
+                "INSERT INTO links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
+                (target_type, target_id, source_type, source_id)
+            )
+            
+            # Special case: ticket <-> epic link updates the ticket.epic_id column
+            if source_type == "ticket" and target_type == "epic":
+                conn.execute("UPDATE tickets SET epic_id = ? WHERE id = ?", (target_id, source_id))
+            elif source_type == "epic" and target_type == "ticket":
+                conn.execute("UPDATE tickets SET epic_id = ? WHERE id = ?", (source_id, target_id))
+            
+        emit_event(self.db, f"{source_type}.linked", source_type, source_id, actor, 
+                   data={"target_id": target_id, "target_type": target_type})
+        emit_event(self.db, f"{target_type}.linked", target_type, target_id, actor, 
+                   data={"target_id": source_id, "target_type": source_type})
+
+    def _detect_type(self, entity_id: str) -> str:
         if entity_id.startswith("TICKET-"):
             return "ticket"
         if entity_id.startswith("EPIC-"):
             return "epic"
         if entity_id.startswith("ADR-"):
             return "adr"
-        raise RunnrrError(f"Unknown entity format: {entity_id}")
-
-    def _link_ticket_adr(self, ticket_id: str, adr_id: str, actor: str | None) -> None:
-        ticket = self._tickets.get(ticket_id)
-        adr = self._adrs.get(adr_id)
-        
-        if adr_id not in ticket.linked_adrs:
-            ticket.linked_adrs.append(adr_id)
-            self._tickets.update(ticket_id, {"linked_adrs": ticket.linked_adrs}, actor)
-            
-        if ticket_id not in adr.linked_tickets:
-            adr.linked_tickets.append(ticket_id)
-            self._adrs.update(adr_id, {"linked_tickets": adr.linked_tickets}, actor)
-
-    def _link_ticket_epic(self, ticket_id: str, epic_id: str, actor: str | None) -> None:
-        ticket = self._tickets.get(ticket_id)
-        epic = self._epics.get(epic_id)
-        
-        if ticket.epic != epic_id:
-            self._tickets.update(ticket_id, {"epic": epic_id}, actor)
-            
-    def _link_adr_epic(self, adr_id: str, epic_id: str, actor: str | None) -> None:
-        adr = self._adrs.get(adr_id)
-        epic = self._epics.get(epic_id)
-        
-        if epic_id not in adr.linked_epics:
-            adr.linked_epics.append(epic_id)
-            self._adrs.update(adr_id, {"linked_epics": adr.linked_epics}, actor)
-            
-        if adr_id not in epic.linked_adrs:
-            epic.linked_adrs.append(adr_id)
-            self._epics.update(epic_id, {"linked_adrs": epic.linked_adrs}, actor)
+        raise ValueError(f"Unknown entity ID format: {entity_id}")

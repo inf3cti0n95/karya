@@ -5,6 +5,10 @@ class RunnrrError(Exception):
     """Base error for Runnrr."""
 
 
+class RunnrrNotInitializedError(RunnrrError):
+    """Raised when .runnrr/ cannot be found by walking up the directory tree."""
+
+
 class TicketNotFoundError(RunnrrError):
     """Raised when a ticket cannot be located."""
 

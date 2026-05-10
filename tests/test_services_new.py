@@ -1,23 +1,23 @@
-"""Service-level unit tests for Phase A."""
+"""Service-level unit tests using SQLite."""
 
 import pytest
-from pathlib import Path
 from runnrr.services.ticket_service import TicketService
 from runnrr.services.epic_service import EpicService
 from runnrr.services.adr_service import ADRService
 from runnrr.core.models import TicketStatus, ADRStatus
+from runnrr.core.db import Database
 
 @pytest.fixture
-def ticket_service(tmp_path):
-    return TicketService(tmp_path)
+def ticket_service(db: Database):
+    return TicketService(db)
 
 @pytest.fixture
-def epic_service(tmp_path):
-    return EpicService(tmp_path)
+def epic_service(db: Database):
+    return EpicService(db)
 
 @pytest.fixture
-def adr_service(tmp_path):
-    return ADRService(tmp_path)
+def adr_service(db: Database):
+    return ADRService(db)
 
 def test_ticket_service_lifecycle(ticket_service):
     ticket = ticket_service.create("Test Ticket", goal="Finish it")

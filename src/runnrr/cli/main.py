@@ -47,27 +47,36 @@ def err(use_json: bool, code: str, message: str, **kwargs: Any) -> None:
     sys.exit(1)
 
 
-def _get_client(agent: str | None = None) -> RunnrrClient:
-    return RunnrrClient(".", agent=agent)
+def _get_client(agent: str | None = None, db_path: str | None = None) -> RunnrrClient:
+    return RunnrrClient(".", agent=agent, db_path=db_path)
 
 
 @click.group(add_help_option=False, invoke_without_command=True)
 @click.option("--help", "show_help", is_flag=True, help="Show help")
 @click.option("--json", "use_json", is_flag=True, help="Use JSON output")
+@click.option("--db-path", help="Explicit path to runnrr.db")
 @click.pass_context
-def cli(ctx: click.Context, show_help: bool, use_json: bool) -> None:
+def cli(ctx: click.Context, show_help: bool, use_json: bool, db_path: str | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["json"] = use_json
+    ctx.obj["db_path"] = db_path
+    
+    # We'll use a cleanup callback to close the client
+    @ctx.call_on_close
+    def cleanup():
+        if "client" in ctx.obj:
+            ctx.obj["client"].close()
 
     if show_help or ctx.invoked_subcommand is None:  # pragma: no cover
         console = Console(force_terminal=True, width=100)
         console.print(Panel("Runnrr - filesystem-native agent workspace protocol", title="Runnrr"))
-        console.print("\n[bold]The Five Commands That Matter:[/bold]")
-        console.print("  runnrr next        # what should I work on? (Phase B)")
-        console.print("  runnrr context     # what do I need to know? (Phase B)")
+        console.print("\n[bold]Primary Interface:[/bold]")
+        console.print("  runnrr list        # what should I work on? (Default: actionable)")
+        console.print("  runnrr context     # what do I need to know?")
         console.print("  runnrr log         # what did I just do?")
+        console.print("  runnrr update      # update ticket content, tasks, and ACs")
         console.print("  runnrr done        # I finished this")
-        console.print("  runnrr adr         # I made an architectural decision")
+        console.print("  runnrr status      # workspace health & stats")
         ctx.exit(0)
 
 
@@ -76,7 +85,86 @@ def cli(ctx: click.Context, show_help: bool, use_json: bool) -> None:
 def init_cmd(ctx: click.Context) -> None:
     client = _get_client()
     client.init()
+    
+    from runnrr.core.filesystem import find_host_gitignore, RUNNRR_ROOT
+    host_gitignore = find_host_gitignore(client.root)
+    
+    if not ctx.obj["json"]:
+        if host_gitignore:
+            click.echo(f"Added {RUNNRR_ROOT}/ to {host_gitignore}")
+        else:
+            click.echo(f"Note: no .gitignore found. Add {RUNNRR_ROOT}/ manually if using git.")
+            
     ok(ctx.obj["json"], path=".runnrr", initialized=True)
+
+
+@cli.command("status")
+@click.pass_context
+def status_cmd(ctx: click.Context) -> None:
+    """Check workspace status and health."""
+    client = _get_client()
+    try:
+        # We need a get_status_info method in client
+        info = client.get_status_info()
+        ok(ctx.obj["json"], **info)
+    except Exception as e:
+        err(ctx.obj["json"], "ERROR", str(e))
+
+
+@cli.command("migrate")
+@click.option("--force", is_flag=True, help="Force migration even if DB already has data.")
+@click.pass_context
+def migrate_cmd(ctx: click.Context, force: bool) -> None:
+    """Migrate from v0.1.x markdown files to SQLite database."""
+    client = _get_client()
+    try:
+        result = client.migrate(force=force)
+        ok(ctx.obj["json"], **result)
+    except Exception as e:
+        err(ctx.obj["json"], "MIGRATION_ERROR", str(e))
+
+
+@cli.command("events")
+@click.option("--ticket", help="Filter events for a specific ticket.")
+@click.option("--epic", help="Filter events for a specific epic.")
+@click.option("--adr", help="Filter events for a specific ADR.")
+@click.option("--since", help="Filter events since a certain date (ISO8601).")
+@click.option("--limit", default=20, type=int, help="Limit number of events shown.")
+@click.pass_context
+def events_cmd(ctx: click.Context, ticket: str | None, epic: str | None, adr: str | None, since: str | None, limit: int) -> None:
+    """View event log (audit trail)."""
+    client = _get_client()
+    try:
+        # We need a list_events method in client
+        events = client.list_events(ticket=ticket, epic=epic, adr=adr, since=since, limit=limit)
+        ok(ctx.obj["json"], count=len(events), events=events)
+    except Exception as e:
+        err(ctx.obj["json"], "ERROR", str(e))
+
+
+@cli.command("export")
+@click.argument("entity_id", required=False)
+@click.option("--all", "export_all", is_flag=True, help="Export all entities.")
+@click.option("--out", help="Output file or directory.")
+@click.pass_context
+def export_cmd(ctx: click.Context, entity_id: str | None, export_all: bool, out: str | None) -> None:
+    """Export entities as markdown."""
+    client = _get_client()
+    try:
+        if export_all:
+            # We need export_all method in client
+            results = client.export_all(out_dir=out)
+            ok(ctx.obj["json"], **results)
+        elif entity_id:
+            content = client.export_entity(entity_id, out_file=out)
+            if not out:
+                click.echo(content)
+            else:
+                ok(ctx.obj["json"], path=out, message=f"Exported to {out}")
+        else:
+            err(ctx.obj["json"], "INVALID_OPTION", "Must specify entity ID or --all")
+    except Exception as e:
+        err(ctx.obj["json"], "ERROR", str(e))
 
 
 @cli.command("create")
@@ -126,15 +214,22 @@ def create_cmd(
 
 
 @cli.command("list")
-@click.option("--status", default=None)
-@click.option("--epic", default=None)
-@click.option("--tag", default=None)
+@click.option("--status", help="Filter by status (todo, in-progress, backlog, blocked, done, all, actionable).")
+@click.option("--epic", help="Filter by epic ID.")
+@click.option("--tag", help="Filter by tag.")
+@click.option("--blocked", is_flag=True, help="Show only blocked tickets and their blockers.")
 @click.pass_context
 def list_cmd(
-    ctx: click.Context, status: str | None, epic: str | None, tag: str | None
+    ctx: click.Context, status: str | None, epic: str | None, tag: str | None, blocked: bool
 ) -> None:
+    """List tickets."""
     client = _get_client()
+    
+    if blocked:
+        status = "blocked"
+        
     tickets = client.list_tickets(status=status, epic=epic, tag=tag)
+    summary = client.get_summary()
 
     payload = [
         {
@@ -142,36 +237,36 @@ def list_cmd(
             "title": ticket.title,
             "status": ticket.status.value,
             "priority": ticket.priority.value,
+            "tags": ticket.tags,
+            "epic_id": ticket.epic,
+            "owner": ticket.owner,
+            "tasks_total": len(ticket.tasks),
+            "tasks_done": len([t for t in ticket.tasks if t.get('done')]),
+            "criteria_total": len(ticket.acceptance_criteria),
+            "criteria_done": len([c for c in ticket.acceptance_criteria if c.get('done')]),
+            "blocked_by": ticket.blocked_by,
         }
         for ticket in tickets
     ]
-    ok(ctx.obj["json"], count=len(payload), tickets=payload)
+    
+    # If blocked, we need blockers info
+    if blocked:
+        for p in payload:
+            # We need to get titles/statuses for the blockers
+            blocker_ids = p.get("blocked_by", [])
+            p["blocked_by_detail"] = []
+            for b_id in blocker_ids:
+                try:
+                    b_ticket = client.get_ticket(b_id)
+                    p["blocked_by_detail"].append({
+                        "id": b_ticket.id,
+                        "title": b_ticket.title,
+                        "status": b_ticket.status.value
+                    })
+                except Exception:
+                    p["blocked_by_detail"].append({"id": b_id, "title": "Unknown", "status": "unknown"})
 
-
-@cli.command("next")
-@click.option("--epic", default=None)
-@click.option("--tag", default=None)
-@click.pass_context
-def next_cmd(
-    ctx: click.Context, epic: str | None, tag: str | None
-) -> None:
-    client = _get_client()
-    ticket = client.get_next_ticket(tag=tag, epic=epic)
-    if not ticket:
-        err(ctx.obj["json"], "NOT_FOUND", "No executable tickets found.")
-        
-    ok(
-        ctx.obj["json"],
-        ticket={
-            "id": ticket.id,
-            "title": ticket.title,
-            "priority": ticket.priority.value,
-            "estimated_effort": ticket.estimated_effort,
-            "epic": ticket.epic,
-            "tags": ticket.tags,
-            "status": ticket.status.value,
-        },
-    )
+    ok(ctx.obj["json"], showing=status or "actionable", count=len(payload), tickets=payload, summary=summary)
 
 
 @cli.command("context")
@@ -273,6 +368,64 @@ def log_cmd(ctx: click.Context, ticket_id: str, message: str) -> None:
     )
 
 
+@cli.command("update")
+@click.argument("ticket_id")
+@click.option("--goal", help="Update the ticket goal.")
+@click.option("--notes", help="Update the ticket notes.")
+@click.option("--add-task", help="Add a new task.")
+@click.option("--check-task", type=int, help="Check off a task by index (0-based).")
+@click.option("--uncheck-task", type=int, help="Uncheck a task by index (0-based).")
+@click.option("--add-ac", help="Add a new acceptance criterion.")
+@click.option("--check-ac", type=int, help="Check off an AC by index (0-based).")
+@click.option("--uncheck-ac", type=int, help="Uncheck an AC by index (0-based).")
+@click.option("--tag", "tags", multiple=True, help="Set ticket tags.")
+@click.pass_context
+def update_cmd(
+    ctx: click.Context,
+    ticket_id: str,
+    goal: str | None,
+    notes: str | None,
+    add_task: str | None,
+    check_task: int | None,
+    uncheck_task: int | None,
+    add_ac: str | None,
+    check_ac: int | None,
+    uncheck_ac: int | None,
+    tags: List[str],
+) -> None:
+    """Update a ticket's content."""
+    client = _get_client()
+    try:
+        updates = {}
+        if goal is not None:
+            updates["goal"] = goal
+        if notes is not None:
+            updates["notes"] = notes
+        if tags:
+            updates["tags"] = list(tags)
+            
+        if updates:
+            client.update_ticket(ticket_id, updates)
+            
+        if add_task:
+            client.add_ticket_task(ticket_id, add_task)
+        if check_task is not None:
+            client.check_ticket_task(ticket_id, check_task)
+        if uncheck_task is not None:
+            client.uncheck_ticket_task(ticket_id, uncheck_task)
+            
+        if add_ac:
+            client.add_ticket_ac(ticket_id, add_ac)
+        if check_ac is not None:
+            client.check_ticket_ac(ticket_id, check_ac)
+        if uncheck_ac is not None:
+            client.uncheck_ticket_ac(ticket_id, uncheck_ac)
+            
+        ok(ctx.obj["json"], ticket_id=ticket_id, message="updated")
+    except Exception as exc:
+        err(ctx.obj["json"], "ERROR", str(exc))
+
+
 @cli.command("describe")
 @click.argument("ticket_id")
 @click.pass_context
@@ -366,6 +519,47 @@ def epic_describe_cmd(ctx: click.Context, epic_id: str) -> None:
     ok(ctx.obj["json"], epic=description)
 
 
+@epic_cmd.command("update")
+@click.argument("epic_id")
+@click.option("--title", help="Update the epic title.")
+@click.option("--goal", help="Update the epic goal.")
+@click.option("--notes", help="Update the epic notes.")
+@click.option("--metric", "metrics", multiple=True, help="Set success metrics (overwrites existing).")
+@click.option("--tag", "tags", multiple=True, help="Set epic tags.")
+@click.pass_context
+def epic_update_cmd(
+    ctx: click.Context,
+    epic_id: str,
+    title: str | None,
+    goal: str | None,
+    notes: str | None,
+    metrics: List[str],
+    tags: List[str],
+) -> None:
+    """Update an epic's content."""
+    client = _get_client()
+    try:
+        updates = {}
+        if title is not None:
+            updates["title"] = title
+        if goal is not None:
+            updates["goal"] = goal
+        if notes is not None:
+            updates["notes"] = notes
+        if metrics:
+            updates["success_metrics"] = list(metrics)
+        if tags:
+            updates["tags"] = list(tags)
+            
+        if updates:
+            client.update_epic(epic_id, updates)
+            ok(ctx.obj["json"], epic_id=epic_id, message="updated")
+        else:
+            err(ctx.obj["json"], "INVALID_OPTION", "No updates provided")
+    except Exception as exc:
+        err(ctx.obj["json"], "ERROR", str(exc))
+
+
 @cli.group("adr")
 @click.pass_context
 def adr_cmd(ctx: click.Context) -> None:
@@ -378,6 +572,7 @@ def adr_cmd(ctx: click.Context) -> None:
 @click.option("--decision", required=True)
 @click.option("--consequences", default="")
 @click.option("--alternatives", default="")
+@click.option("--supersedes", help="ID of the ADR this one supersedes.")
 @click.option("--ticket", "linked_tickets", multiple=True)
 @click.option("--epic", "linked_epics", multiple=True)
 @click.option("--tag", "tags", multiple=True)
@@ -389,30 +584,39 @@ def adr_create_cmd(
     decision: str,
     consequences: str,
     alternatives: str,
+    supersedes: str | None,
     linked_tickets: List[str],
     linked_epics: List[str],
     tags: List[str],
 ) -> None:
     client = _get_client()
-    adr = client.create_adr(
-        title=title,
-        context=context,
-        decision=decision,
-        consequences=consequences,
-        alternatives=alternatives,
-        linked_tickets=list(linked_tickets),
-        linked_epics=list(linked_epics),
-        tags=list(tags),
-    )
+    try:
+        adr = client.create_adr(
+            title=title,
+            context=context,
+            decision=decision,
+            consequences=consequences,
+            alternatives=alternatives,
+            linked_tickets=list(linked_tickets),
+            linked_epics=list(linked_epics),
+            tags=list(tags),
+        )
+        
+        if supersedes:
+            client.update_adr(adr.id, {"supersedes": supersedes})
+            # Also update the superseded ADR
+            client.update_adr(supersedes, {"superseded_by": adr.id, "status": "superseded"})
 
-    ok(
-        ctx.obj["json"],
-        adr={
-            "id": adr.id,
-            "title": adr.title,
-            "status": adr.status.value,
-        },
-    )
+        ok(
+            ctx.obj["json"],
+            adr={
+                "id": adr.id,
+                "title": adr.title,
+                "status": adr.status.value,
+            },
+        )
+    except Exception as exc:
+        err(ctx.obj["json"], "ERROR", str(exc))
 
 
 @adr_cmd.command("list")
@@ -461,6 +665,51 @@ def adr_describe_cmd(ctx: click.Context, adr_id: str) -> None:
     ok(ctx.obj["json"], adr=description)
 
 
+@adr_cmd.command("update")
+@click.argument("adr_id")
+@click.option("--title", help="Update the ADR title.")
+@click.option("--context", "context_text", help="Update the context.")
+@click.option("--decision", "decision_text", help="Update the decision.")
+@click.option("--consequences", "consequences_text", help="Update the consequences.")
+@click.option("--alternatives", "alternatives_text", help="Update the alternatives.")
+@click.option("--tag", "tags", multiple=True, help="Set ADR tags.")
+@click.pass_context
+def adr_update_cmd(
+    ctx: click.Context,
+    adr_id: str,
+    title: str | None,
+    context_text: str | None,
+    decision_text: str | None,
+    consequences_text: str | None,
+    alternatives_text: str | None,
+    tags: List[str],
+) -> None:
+    """Update an ADR's content."""
+    client = _get_client()
+    try:
+        updates = {}
+        if title is not None:
+            updates["title"] = title
+        if context_text is not None:
+            updates["context_text"] = context_text
+        if decision_text is not None:
+            updates["decision_text"] = decision_text
+        if consequences_text is not None:
+            updates["consequences"] = consequences_text
+        if alternatives_text is not None:
+            updates["alternatives"] = alternatives_text
+        if tags:
+            updates["tags"] = list(tags)
+            
+        if updates:
+            client.update_adr(adr_id, updates)
+            ok(ctx.obj["json"], adr_id=adr_id, message="updated")
+        else:
+            err(ctx.obj["json"], "INVALID_OPTION", "No updates provided")
+    except Exception as exc:
+        err(ctx.obj["json"], "ERROR", str(exc))
+
+
 @cli.command("search")
 @click.argument("query")
 @click.pass_context
@@ -496,19 +745,6 @@ def actions_cmd(ctx: click.Context, ticket_id: str) -> None:
     except Exception as exc:
         err(ctx.obj["json"], "ERROR", str(exc))
     ok(ctx.obj["json"], ticket_id=ticket_id, state=ticket.status.value, available=actions)
-
-
-@cli.command("exec")
-@click.argument("ticket_id", required=False)
-@click.option("--agent", default=None)
-@click.pass_context
-def exec_cmd(ctx: click.Context, ticket_id: str | None, agent: str | None) -> None:
-    client = _get_client(agent)
-    try:
-        payload = client.execute(ticket_id)
-    except Exception as exc:
-        err(ctx.obj["json"], "ERROR", str(exc))
-    ok(ctx.obj["json"], **payload)
 
 
 @cli.command("link")
@@ -561,6 +797,13 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
 
     if cmd_name == "init":
         console.print(Panel(f"Runnrr workspace initialized at [cyan]{payload.get('path')}[/cyan]", title="Init", style="green"))
+    elif cmd_name == "status":
+        _render_status(console, payload)
+    elif cmd_name == "migrate":
+        counts = payload.get("counts", {})
+        console.print(Panel(f"Migration successful!\nMigrated {counts.get('tickets')} tickets, {counts.get('epics')} epics, {counts.get('adrs')} ADRs.\nOld files archived to {payload.get('archive')}", title="Migrate", style="green"))
+    elif cmd_name == "events":
+        _render_events(console, payload)
     elif cmd_name == "create":
         ticket = payload.get("ticket", {})
         console.print(Panel(f"Created ticket [bold cyan]{ticket.get('id')}[/bold cyan]: {ticket.get('title')}", title="Create", style="green"))
@@ -569,12 +812,8 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
         console.print(Panel(f"Created epic [bold cyan]{epic.get('id')}[/bold cyan]: {epic.get('title')}", title="Epic Create", style="green"))
     elif cmd_name == "list":
         _render_list(console, payload)
-    elif cmd_name == "next":
-        _render_next(console, payload.get("ticket", {}))
     elif cmd_name == "context":
         _render_context(console, payload)
-    elif cmd_name == "exec":
-        _render_exec(console, payload)
     elif cmd_name == "search":
         _render_search_results(console, payload)
     elif cmd_name == "find-related":
@@ -608,21 +847,116 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
         _render_adr_detail(console, payload.get("adr", {}))
 
 
-def _render_list(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
-    tickets = payload.get("tickets", [])
-    table = Table(title="Tickets")
-    table.add_column("ID", style="cyan")
-    table.add_column("Title")
-    table.add_column("Status")
-    table.add_column("Priority")
-    for ticket in tickets:
+def _render_status(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    console.print(f"\n[bold]Runnrr Workspace Status[/bold]\n")
+    
+    table = Table(show_header=False, box=None)
+    table.add_column("Field", style="cyan")
+    table.add_column("Value")
+    
+    table.add_row("Project Root", payload.get("project_root"))
+    
+    db = payload.get("database", {})
+    db_status = "[green]healthy[/green]" if db.get("healthy") else "[red]unhealthy[/red]"
+    table.add_row("Database", f"{db.get('path')} ({db_status}, {db.get('size_kb')} KB)")
+    table.add_row("Schema", f"version {db.get('schema_version')}")
+    
+    counts = payload.get("counts", {})
+    t = counts.get("tickets", {})
+    t_sum = f"{sum(t.values())} total ({t.get('in-progress', 0)} in-progress, {t.get('todo', 0)} todo, {t.get('blocked', 0)} blocked, {t.get('done', 0)} done)"
+    table.add_row("Tickets", t_sum)
+    table.add_row("Epics", str(counts.get("epics")))
+    table.add_row("ADRs", str(counts.get("adrs")))
+    
+    git_status = "[green]✓ .runnrr/ in .gitignore[/green]" if payload.get("git_isolated") else "[yellow]⚠ .runnrr/ NOT in .gitignore[/yellow]"
+    table.add_row("Host Git", git_status)
+    
+    console.print(table)
+
+
+def _render_events(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    events = payload.get("events", [])
+    table = Table(title="Event Log")
+    table.add_column("Date", style="dim")
+    table.add_column("Type", style="cyan")
+    table.add_column("Entity", style="bold")
+    table.add_column("Actor")
+    table.add_column("Data", style="italic")
+    
+    for e in events:
         table.add_row(
-            str(ticket.get("id", "")),
-            str(ticket.get("title", "")),
-            str(ticket.get("status", "")),
-            str(ticket.get("priority", "")),
+            str(e.get("created_at", "")[:19]),
+            str(e.get("event_type", "")),
+            f"{e.get('entity_type', '')}: {e.get('entity_id', '')}",
+            str(e.get("actor") or "system"),
+            json.dumps(e.get("data", {}))
         )
     console.print(table)
+
+
+def _render_list(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
+    tickets = payload.get("tickets", [])
+    summary = payload.get("summary", {})
+    showing = payload.get("showing", "actionable")
+    
+    console.print(f"\n[bold]Runnrr[/bold] · {len(tickets)} {showing} tickets\n")
+    
+    # Group tickets by status for default view
+    if showing == "actionable":
+        in_progress = [t for t in tickets if t['status'] == "in-progress"]
+        todo = [t for t in tickets if t['status'] == "todo"]
+        
+        if in_progress:
+            console.print("[bold yellow]IN PROGRESS[/bold yellow]")
+            for t in in_progress:
+                _render_ticket_row(console, t, symbol="●", color="yellow")
+            console.print()
+            
+        if todo:
+            console.print("[bold cyan]TODO (ready to start)[/bold cyan]")
+            for t in todo:
+                _render_ticket_row(console, t, symbol="○", color="cyan")
+            console.print()
+    elif showing == "blocked":
+        console.print("[bold red]BLOCKED TICKETS[/bold red]")
+        for t in tickets:
+            _render_ticket_row(console, t, symbol="✗", color="red")
+            blockers = t.get("blocked_by_detail", [])
+            if blockers:
+                for b in blockers:
+                    console.print(f"      [dim]Blocked by: {b.get('id')} ({b.get('title')}) — {b.get('status')}[/dim]")
+        console.print()
+    else:
+        # Just a table for other views
+        table = Table(box=None, show_header=True)
+        table.add_column("ID", style="dim")
+        table.add_column("Title")
+        table.add_column("Priority")
+        table.add_column("Progress")
+        
+        for t in tickets:
+            prog = f"{t.get('criteria_done')}/{t.get('criteria_total')} AC"
+            table.add_row(t.get("id"), t.get("title"), t.get("priority"), prog)
+        console.print(table)
+
+    # Summary line
+    blocked_count = summary.get("blocked", 0)
+    backlog_count = summary.get("backlog", 0)
+    
+    if blocked_count:
+        console.print(f"[red]{blocked_count} tickets blocked[/red] — run `runnrr list --blocked` to see them")
+    if backlog_count:
+        console.print(f"[dim]{backlog_count} tickets in backlog[/dim] — run `runnrr list --status backlog`")
+
+
+def _render_ticket_row(console: Console, t: Dict[str, Any], symbol: str, color: str) -> None:
+    tags = f" [dim]{', '.join(t.get('tags', []))}[/dim]" if t.get('tags') else ""
+    epic = f" [blue]Epic: {t.get('epic_id')}[/blue]" if t.get('epic_id') else ""
+    owner = f" · [dim]Owner: {t.get('owner')}[/dim]" if t.get('owner') else ""
+    
+    console.print(f"  [{color}]{symbol}[/{color}] [bold]{t.get('id')}[/bold] {t.get('title')} [{t.get('priority')}]{tags}")
+    if epic or owner:
+        console.print(f"    {epic}{owner}")
 
 
 def _render_epic_list(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
@@ -747,26 +1081,6 @@ def _render_adr_detail(console: Console, adr: Dict[str, Any]) -> None:  # pragma
         console.print(Panel(adr["alternatives_text"], title="Alternatives"))
 
 
-def _render_next(console: Console, ticket: Dict[str, Any]) -> None:  # pragma: no cover
-    if not ticket:
-        console.print("[yellow]No executable tickets found.[/yellow]")
-        return
-
-    table = Table(show_header=False, box=None)
-    table.add_column("Field", style="cyan", no_wrap=True)
-    table.add_column("Value")
-    
-    table.add_row("ID", str(ticket.get("id")))
-    table.add_row("Title", str(ticket.get("title")))
-    table.add_row("Priority", str(ticket.get("priority")))
-    table.add_row("Effort", str(ticket.get("estimated_effort")))
-    table.add_row("Epic", str(ticket.get("epic") or "None"))
-    table.add_row("Tags", ", ".join(ticket.get("tags", [])))
-    table.add_row("Status", str(ticket.get("status")))
-
-    console.print(Panel(table, title="Next Ticket", style="green"))
-
-
 def _render_context(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
     sections = payload.get("sections", [])
     budget = payload.get("budget", 4000)
@@ -801,31 +1115,6 @@ def _render_context(console: Console, payload: Dict[str, Any]) -> None:  # pragm
         console.print(f"\n[yellow]Excluded (budget):[/yellow] {', '.join([e['id'] for e in excluded])}")
     
     console.print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-
-def _render_exec(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover
-    ticket = payload.get("ticket", {})
-    console.print(Panel(f"Targeting [bold cyan]{ticket.get('id')}[/bold cyan]: {ticket.get('title')}", title="Agent Executive Interface", style="bold blue"))
-    
-    # Render context summary
-    context = payload.get("context", {})
-    console.print(f"\n[bold]Context Overview:[/bold] {context.get('tokens_used')} tokens, {len(context.get('sections', []))} sections.")
-    
-    # Valid actions
-    actions = payload.get("valid_actions", [])
-    table = Table(title="Valid Actions", box=None)
-    table.add_column("Action", style="cyan")
-    table.add_column("Available", justify="center")
-    table.add_column("Command")
-    
-    for a in actions:
-        avail = "[green]Yes[/green]" if a.get("available") else "[red]No[/red]"
-        table.add_row(a.get("action"), avail, a.get("command"))
-    console.print(table)
-    
-    suggested = payload.get("suggested_command")
-    if suggested:
-        console.print(Panel(f"Suggested Command: [bold green]{suggested}[/bold bold green]", border_style="bright_blue"))
 
 
 def _render_search_results(console: Console, payload: Dict[str, Any]) -> None:  # pragma: no cover

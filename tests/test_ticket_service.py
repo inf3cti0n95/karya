@@ -1,17 +1,16 @@
-"""Ticket service tests."""
+"""Ticket service tests using SQLite."""
 
 from datetime import datetime, timezone
 from pathlib import Path
-
 import pytest
-
 from runnrr.core.models import Priority, TicketStatus
+from runnrr.core.db import Database
 from runnrr.exceptions import IncompleteAcceptanceCriteria, InvalidTransitionError
 from runnrr.services.ticket_service import TicketService
 
 
-def test_create_and_get(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_create_and_get(db: Database) -> None:
+    service = TicketService(db)
     ticket = service.create("Title")
 
     assert ticket.status == TicketStatus.BACKLOG
@@ -19,8 +18,8 @@ def test_create_and_get(runnrr_root: Path) -> None:
     assert loaded.id == ticket.id
 
 
-def test_transition_moves_ticket(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_transition_moves_ticket(db: Database) -> None:
+    service = TicketService(db)
     ticket = service.create("Transition")
     service.transition(ticket.id, "todo")
 
@@ -28,38 +27,40 @@ def test_transition_moves_ticket(runnrr_root: Path) -> None:
     assert updated.status == TicketStatus.TODO
 
 
-def test_transition_done_requires_acceptance(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_transition_done_requires_acceptance(db: Database) -> None:
+    service = TicketService(db)
     ticket = service.create("Needs AC")
     service.transition(ticket.id, "todo")
     service.transition(ticket.id, "in-progress")
 
-    ticket = service.get(ticket.id)
-    ticket.acceptance_criteria = [{"text": "AC", "done": False}]
-    service._save(ticket)
+    # Manually insert an incomplete AC
+    db.execute(
+        "INSERT INTO acceptance_criteria (ticket_id, text, done) VALUES (?, ?, ?)",
+        (ticket.id, "AC", 0)
+    )
 
     with pytest.raises(IncompleteAcceptanceCriteria):
         service.transition(ticket.id, "done")
 
 
-def test_transition_invalid(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_transition_invalid(db: Database) -> None:
+    service = TicketService(db)
     ticket = service.create("Invalid")
     # backlog -> in-progress is invalid
     with pytest.raises(InvalidTransitionError):
         service.transition(ticket.id, "in-progress")
 
 
-def test_log_appends_execution_entry(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_log_appends_execution_entry(db: Database) -> None:
+    service = TicketService(db)
     ticket = service.create("Log")
     service.log(ticket.id, "First")
     updated = service.get(ticket.id)
     assert updated.execution_log[-1]["message"] == "First"
 
 
-def test_get_next_respects_priority_and_dependencies(runnrr_root: Path) -> None:
-    service = TicketService(runnrr_root)
+def test_get_next_respects_priority_and_dependencies(db: Database) -> None:
+    service = TicketService(db)
     first = service.create("First", priority=Priority.LOW)
     second = service.create("Second", priority=Priority.HIGH)
 
@@ -76,7 +77,8 @@ def test_get_next_respects_priority_and_dependencies(runnrr_root: Path) -> None:
     service.transition(blocker.id, "in-progress")
     
     dependent = service.create("Dependent")
-    service.update(dependent.id, {"blocked_by": [blocker.id]})
+    # Manually add dependency
+    db.execute("INSERT INTO dependencies (ticket_id, blocked_by) VALUES (?, ?)", (dependent.id, blocker.id))
     service.transition(dependent.id, "todo")
 
     # Dependent is blocked by in-progress Blocker

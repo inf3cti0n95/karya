@@ -24,7 +24,7 @@ def test_runnrr_lifecycle(runner, temp_repo):
         data = json.loads(result.output)
         assert data["status"] == "ok"
         assert Path(".runnrr").exists()
-        assert Path(".runnrr/tickets/backlog").exists()
+        assert Path(".runnrr/runnrr.db").exists()
 
         # 2. runnrr epic create
         result = runner.invoke(cli, ["--json", "epic", "create", "Main Epic", "--goal", "Finish everything"])
@@ -40,14 +40,14 @@ def test_runnrr_lifecycle(runner, temp_repo):
         ticket_id = data["ticket"]["id"]
         assert ticket_id == "TICKET-001"
 
-        # 4. runnrr list
-        result = runner.invoke(cli, ["--json", "list"])
+        # 4. runnrr list --status all
+        result = runner.invoke(cli, ["--json", "list", "--status", "all"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["count"] == 1
         assert data["tickets"][0]["id"] == ticket_id
 
-        # 5. runnrr start
+        # 5. runnrr start (moves backlog -> todo -> in-progress)
         result = runner.invoke(cli, ["--json", "start", ticket_id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -67,8 +67,6 @@ def test_runnrr_lifecycle(runner, temp_repo):
         assert "Working hard" in str(data["ticket"]["execution_log"])
 
         # 8. runnrr done
-        # Initially fail if acceptance criteria (if any) are not met.
-        # But Phase A models might not enforce it yet unless they are in the md.
         result = runner.invoke(cli, ["--json", "done", ticket_id])
         assert result.exit_code == 0
         data = json.loads(result.output)

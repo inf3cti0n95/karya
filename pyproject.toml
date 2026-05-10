@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "runnrr"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deterministic, file-based execution system for autonomous agents"
 readme = "README.md"
 authors = [
@@ -14,7 +14,6 @@ requires-python = ">=3.11"
 dependencies = [
     "click>=8.3.3",
     "filelock>=3.29.0",
-    "gitpython>=3.1.49",
     "pydantic>=2.13.3",
     "python-frontmatter>=1.1.0",
     "rich>=15.0.0",

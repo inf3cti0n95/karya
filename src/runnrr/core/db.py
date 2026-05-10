@@ -1,150 +1,203 @@
-"""Database and Search index for Runnrr."""
-
-import sqlite3
 import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Any
-from runnrr.core.filesystem import normalize_root
+from typing import Any, Dict, List, Optional, Tuple
 
-DB_FILE = ".db"
+SCHEMA_VERSION = 1
 
-def get_db(root: Path) -> sqlite3.Connection:
-    root = normalize_root(root)
-    db_path = root / ".runnrr" / DB_FILE
-    
-    # Connect and initialize if needed
-    init_needed = not db_path.exists()
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    
-    if init_needed:
-        _init_schema(conn)
-        
-    return conn
+INITIAL_SCHEMA = """
+-- Core entities
+CREATE TABLE IF NOT EXISTS tickets (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'backlog',
+    type TEXT NOT NULL DEFAULT 'feature',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    epic_id TEXT REFERENCES epics(id),
+    owner TEXT,
+    estimated_effort INTEGER DEFAULT 1,
+    goal TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
-def _init_schema(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    
-    # FTS5 Virtual Table
-    cursor.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
-            id, type, title, status, content, tags
-        )
-    """)
-    
-    # Tag mapping table for exact lookups
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS entity_tags (
-            entity_id TEXT,
-            entity_type TEXT,
-            tag TEXT,
-            PRIMARY KEY (entity_id, tag)
-        )
-    """)
-    
-    conn.commit()
+CREATE TABLE IF NOT EXISTS epics (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'feature',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    owner TEXT,
+    goal TEXT,
+    success_metrics TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
-def rebuild_index(root: Path):
-    from runnrr.services.ticket_service import TicketService
-    from runnrr.services.epic_service import EpicService
-    from runnrr.services.adr_service import ADRService
-    
-    conn = get_db(root)
-    cursor = conn.cursor()
-    
-    cursor.execute("DELETE FROM search_index")
-    cursor.execute("DELETE FROM entity_tags")
-    
-    # Tickets
-    ts = TicketService(root)
-    for ticket in ts.list():
-        content = f"{ticket.goal_text or ''} {ticket.notes_text or ''}"
-        for t in ticket.tasks:
-            content += f" {t.get('text', '')}"
-        for ac in ticket.acceptance_criteria:
-            content += f" {ac.get('text', '')}"
+CREATE TABLE IF NOT EXISTS adrs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    decision_date TEXT NOT NULL,
+    context_text TEXT,
+    decision_text TEXT,
+    consequences TEXT,
+    alternatives TEXT,
+    supersedes TEXT REFERENCES adrs(id),
+    superseded_by TEXT REFERENCES adrs(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (entity_type, entity_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS acceptance_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS log_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    actor TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dependencies (
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    blocked_by TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    PRIMARY KEY (ticket_id, blocked_by)
+);
+
+CREATE TABLE IF NOT EXISTS links (
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    PRIMARY KEY (source_type, source_id, target_type, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    actor TEXT,
+    data TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+    entity_type,
+    entity_id,
+    title,
+    body,
+    tags
+);
+"""
+
+class Database:
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._conn: Optional[sqlite3.Connection] = None
+
+    def connect(self) -> None:
+        """Open connection. Enable WAL mode for concurrent reads."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+
+    def migrate(self) -> None:
+        """
+        Run schema migrations. Check user_version pragma.
+        If 0, run initial schema.
+        """
+        if not self._conn:
+            self.connect()
             
-        tags_str = " ".join(ticket.tags)
-        cursor.execute(
-            "INSERT INTO search_index (id, type, title, status, content, tags) VALUES (?, ?, ?, ?, ?, ?)",
-            (ticket.id, "ticket", ticket.title, ticket.status.value, content, tags_str)
+        current = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if current < 1:
+            self._run_initial_schema()
+            self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._conn.commit()
+
+    def _run_initial_schema(self) -> None:
+        self._conn.executescript(INITIAL_SCHEMA)
+
+    @contextmanager
+    def transaction(self):
+        """Context manager for explicit transactions."""
+        if not self._conn:
+            self.connect()
+        try:
+            yield self._conn
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        if not self._conn:
+            self.connect()
+        return self._conn.execute(sql, params)
+
+    def executescript(self, sql: str) -> sqlite3.Cursor:
+        if not self._conn:
+            self.connect()
+        return self._conn.executescript(sql)
+
+    def close(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
+def emit_event(db: Database, event_type: str, entity_type: str, entity_id: str, actor: Optional[str], data: dict = {}) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO events (event_type, entity_type, entity_id, actor, data, created_at) VALUES (?,?,?,?,?,?)",
+            (event_type, entity_type, entity_id, actor, json.dumps(data), now)
         )
-        for tag in ticket.tags:
-            cursor.execute(
-                "INSERT INTO entity_tags (entity_id, entity_type, tag) VALUES (?, ?, ?)",
-                (ticket.id, "ticket", tag)
-            )
 
-    # Epics
-    es = EpicService(root)
-    for epic in es.list():
-        content = f"{epic.goal_text or ''} {epic.notes_text or ''}"
-        for sm in epic.success_metrics:
-            content += f" {sm}"
-            
-        tags_str = " ".join(epic.tags)
-        # Epic status is computed, we'll just put "active" or its type for index
-        cursor.execute(
-            "INSERT INTO search_index (id, type, title, status, content, tags) VALUES (?, ?, ?, ?, ?, ?)",
-            (epic.id, "epic", epic.title, "active", content, tags_str)
-        )
-        for tag in epic.tags:
-            cursor.execute(
-                "INSERT INTO entity_tags (entity_id, entity_type, tag) VALUES (?, ?, ?)",
-                (epic.id, "epic", tag)
-            )
 
-    # ADRs
-    as_svc = ADRService(root)
-    for adr in as_svc.list():
-        content = f"{adr.context_text or ''} {adr.decision_text or ''} {adr.consequences_text or ''} {adr.alternatives_text or ''}"
-        tags_str = " ".join(adr.tags)
-        
-        cursor.execute(
-            "INSERT INTO search_index (id, type, title, status, content, tags) VALUES (?, ?, ?, ?, ?, ?)",
-            (adr.id, "adr", adr.title, adr.status.value, content, tags_str)
-        )
-        for tag in adr.tags:
-            cursor.execute(
-                "INSERT INTO entity_tags (entity_id, entity_type, tag) VALUES (?, ?, ?)",
-                (adr.id, "adr", tag)
-            )
+def next_ticket_id(db: Database) -> str:
+    row = db.execute("SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER)) as max_id FROM tickets").fetchone()
+    max_id = row['max_id'] or 0
+    return f"TICKET-{(max_id + 1):03d}"
 
-    conn.commit()
 
-def search(root: Path, query: str) -> List[Dict[str, Any]]:
-    conn = get_db(root)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT id, type, title, status, tags
-        FROM search_index 
-        WHERE search_index MATCH ?
-        ORDER BY rank
-    """, (query,))
-    
-    return [dict(row) for row in cursor.fetchall()]
+def next_epic_id(db: Database) -> str:
+    row = db.execute("SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) as max_id FROM epics").fetchone()
+    max_id = row['max_id'] or 0
+    return f"EPIC-{(max_id + 1):03d}"
 
-def find_related(root: Path, entity_id: str) -> List[Dict[str, Any]]:
-    conn = get_db(root)
-    cursor = conn.cursor()
-    
-    # Get tags for the entity
-    cursor.execute("SELECT tag FROM entity_tags WHERE entity_id = ?", (entity_id,))
-    tags = [row['tag'] for row in cursor.fetchall()]
-    
-    if not tags:
-        return []
-        
-    # Find entities with overlapping tags, ordered by overlap count
-    placeholders = ','.join(['?'] * len(tags))
-    cursor.execute(f"""
-        SELECT entity_id as id, entity_type as type, COUNT(tag) as overlap
-        FROM entity_tags
-        WHERE tag IN ({placeholders}) AND entity_id != ?
-        GROUP BY entity_id, entity_type
-        ORDER BY overlap DESC
-        LIMIT 10
-    """, (*tags, entity_id))
-    
-    return [dict(row) for row in cursor.fetchall()]
+
+def next_adr_id(db: Database) -> str:
+    row = db.execute("SELECT MAX(CAST(SUBSTR(id, 5) AS INTEGER)) as max_id FROM adrs").fetchone()
+    max_id = row['max_id'] or 0
+    return f"ADR-{(max_id + 1):03d}"

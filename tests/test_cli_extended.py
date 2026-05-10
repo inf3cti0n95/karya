@@ -1,4 +1,4 @@
-"""CLI tests for human-readable output and error conditions."""
+"""CLI tests for human-readable output and error conditions using SQLite."""
 
 import pytest
 from click.testing import CliRunner
@@ -10,33 +10,33 @@ def runner():
     return CliRunner()
 
 def test_cli_describe_non_existent(runner, tmp_path):
-    with runner.isolated_filesystem(tmp_path):
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(cli, ["init"])
         result = runner.invoke(cli, ["describe", "TICKET-999"])
-        # Even if human output fails, result.output should contain error from ok/err
         assert "Error" in result.output or "NOT_FOUND" in result.output
         assert result.exit_code != 0
 
 def test_cli_list_filters(runner, tmp_path):
-    with runner.isolated_filesystem(tmp_path):
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(cli, ["init"])
+        runner.invoke(cli, ["epic", "create", "E1"])
         runner.invoke(cli, ["create", "T1", "--tag", "tag1", "--epic", "EPIC-001"])
         runner.invoke(cli, ["create", "T2", "--tag", "tag2"])
         
-        # Filter by tag
-        result = runner.invoke(cli, ["--json", "list", "--tag", "tag1"])
+        # Filter by tag (use --status all since they are in backlog)
+        result = runner.invoke(cli, ["--json", "list", "--tag", "tag1", "--status", "all"])
         data = json.loads(result.output)
         assert data["count"] == 1
         assert data["tickets"][0]["title"] == "T1"
         
         # Filter by epic
-        result = runner.invoke(cli, ["--json", "list", "--epic", "EPIC-001"])
+        result = runner.invoke(cli, ["--json", "list", "--epic", "EPIC-001", "--status", "all"])
         data = json.loads(result.output)
         assert data["count"] == 1
         assert data["tickets"][0]["title"] == "T1"
 
 def test_cli_block_and_log(runner, tmp_path):
-    with runner.isolated_filesystem(tmp_path):
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(cli, ["init"])
         runner.invoke(cli, ["create", "T1"])
         runner.invoke(cli, ["start", "TICKET-001"])
@@ -52,7 +52,7 @@ def test_cli_block_and_log(runner, tmp_path):
         assert data["new_state"] == "blocked"
 
 def test_cli_epic_lifecycle(runner, tmp_path):
-    with runner.isolated_filesystem(tmp_path):
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(cli, ["init"])
         runner.invoke(cli, ["--json", "epic", "create", "E1", "--goal", "G1"])
         data = json.loads(runner.invoke(cli, ["--json", "epic", "list"]).output)
@@ -63,7 +63,7 @@ def test_cli_epic_lifecycle(runner, tmp_path):
         assert data["epic"]["goal_text"] == "G1"
 
 def test_cli_adr_lifecycle(runner, tmp_path):
-    with runner.isolated_filesystem(tmp_path):
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(cli, ["init"])
         runner.invoke(cli, ["--json", "adr", "create", "A1", "--context", "C1", "--decision", "D1"])
         

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import frontmatter
+from runnrr.exceptions import RunnrrNotInitializedError
 
 RUNNRR_ROOT = ".runnrr"
 
@@ -33,8 +33,27 @@ def normalize_root(root: Path) -> Path:
 	return root
 
 
+def find_runnrr_root(start: Path = Path(".")) -> Path:
+	"""
+	Walk UP from start until .runnrr/ is found.
+	Raises RunnrrNotInitializedError if not found.
+	"""
+	current = start.resolve()
+	while True:
+		candidate = current / RUNNRR_ROOT
+		if candidate.exists() and candidate.is_dir():
+			return current
+		
+		parent = current.parent
+		if parent == current:
+			raise RunnrrNotInitializedError(
+				"No .runnrr/ directory found. Run `runnrr init` first."
+			)
+		current = parent
+
+
 def init_runnrr(root: Path) -> None:
-	"""Create the minimal .runnrr directory tree."""
+	"""Create the minimal .runnrr directory tree and ensure git isolation."""
 	(root / RUNNRR_ROOT).mkdir(parents=True, exist_ok=True)
 
 	for path in TICKET_DIRS.values():
@@ -51,6 +70,47 @@ All APIs: {data, error, meta} envelope.
 Commits: feat(scope): message
 """,
 	)
+
+	# Git isolation
+	host_gitignore = find_host_gitignore(Path.cwd())
+	if host_gitignore:
+		_ensure_gitignore_entry(host_gitignore, f"{RUNNRR_ROOT}/")
+
+
+def find_host_gitignore(start: Path) -> Path | None:
+	"""
+	Walk up directory tree from `start`. Return path to .gitignore if a .git/ directory is found at the same level.
+	Return None if we hit the filesystem root without finding .git/.
+	"""
+	current = start.resolve()
+	while True:
+		git_dir = current / ".git"
+		if git_dir.exists() and git_dir.is_dir():
+			return current / ".gitignore"
+		
+		parent = current.parent
+		if parent == current:
+			return None
+		current = parent
+
+
+def _ensure_gitignore_entry(gitignore_path: Path, entry: str) -> None:
+	"""
+	Add `entry` to .gitignore if not already present. Creates the file if it doesn't exist.
+	Appends with a newline. Does not modify existing content.
+	"""
+	if gitignore_path.exists():
+		existing = gitignore_path.read_text(encoding="utf-8")
+		if entry in existing.splitlines():
+			return
+		
+		# Append, ensuring there's a trailing newline before our entry
+		if existing and not existing.endswith("\n"):
+			gitignore_path.write_text(existing + "\n" + entry + "\n", encoding="utf-8")
+		else:
+			gitignore_path.write_text(existing + entry + "\n", encoding="utf-8")
+	else:
+		gitignore_path.write_text(entry + "\n", encoding="utf-8")
 
 
 def find_ticket_path(ticket_id: str, root: Path) -> Path | None:
@@ -138,6 +198,35 @@ def find_adr_path(adr_id: str, root: Path) -> Path | None:
 
 def list_all_adrs(root: Path) -> List[Path]:
 	return sorted((root / ADRS_DIR).glob("ADR-*.md"))
+
+
+def archive_v01(root: Path) -> Path:
+	"""Rename old directories to .runnrr/archive_v01/."""
+	archive_dir = root / RUNNRR_ROOT / "archive_v01"
+	archive_dir.mkdir(parents=True, exist_ok=True)
+
+	for d in ["tickets", "epics", "adrs"]:
+		old_dir = root / RUNNRR_ROOT / d
+		if old_dir.exists():
+			new_dir = archive_dir / d
+			old_dir.rename(new_dir)
+	
+	return archive_dir
+
+
+def export_ticket_md(ticket: 'Ticket') -> str:
+	from runnrr.core.parser import serialize_ticket
+	return serialize_ticket(ticket)
+
+
+def export_epic_md(epic: 'Epic') -> str:
+	from runnrr.core.parser import serialize_epic
+	return serialize_epic(epic)
+
+
+def export_adr_md(adr: 'ADR') -> str:
+	from runnrr.core.parser import serialize_adr
+	return serialize_adr(adr)
 
 
 def _write_if_missing(path: Path, content: str) -> None:
