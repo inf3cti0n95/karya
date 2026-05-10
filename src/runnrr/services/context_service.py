@@ -21,15 +21,27 @@ class ContextService:
         Includes ticket details, blockers, epic context, and relevant ADRs.
         """
         ticket = self._tickets.get(ticket_id)
-        context = {
-            "ticket": ticket.model_dump(mode="json"),
-            "blockers": [],
-            "epic": None,
-            "adrs": [],
-            "related_tickets": []
-        }
+        
+        sections = []
+        tokens_used = 0
+        excluded = []
 
-        # 1. Get Blockers
+        # Helper to "estimate" tokens (very rough for now)
+        def estimate_tokens(obj: Any) -> int:
+            return len(str(obj)) // 4
+
+        # 1. Ticket Detail (Always first, usually fits)
+        ticket_data = ticket.model_dump(mode="json")
+        t_cost = estimate_tokens(ticket_data)
+        sections.append({
+            "id": ticket_id,
+            "type": "ticket",
+            "content": ticket_data,
+            "tokens": t_cost
+        })
+        tokens_used += t_cost
+
+        # 2. Get Blockers
         rows = self.db.execute(
             """
             SELECT t.* FROM tickets t
@@ -39,17 +51,40 @@ class ContextService:
             (ticket_id,)
         ).fetchall()
         for row in rows:
-            context["blockers"].append(dict(row))
+            blocker_data = dict(row)
+            # Fetch full ticket for detail if needed, but for now just the row
+            cost = estimate_tokens(blocker_data)
+            if tokens_used + cost <= budget:
+                sections.append({
+                    "id": blocker_data["id"],
+                    "type": "blocker",
+                    "content": blocker_data,
+                    "tokens": cost
+                })
+                tokens_used += cost
+            else:
+                excluded.append({"id": blocker_data["id"], "type": "blocker"})
 
-        # 2. Get Epic Context
+        # 3. Get Epic Context
         if ticket.epic:
             try:
                 epic = self._epics.get(ticket.epic)
-                context["epic"] = epic.model_dump(mode="json")
+                epic_data = epic.model_dump(mode="json")
+                cost = estimate_tokens(epic_data)
+                if tokens_used + cost <= budget:
+                    sections.append({
+                        "id": ticket.epic,
+                        "type": "epic",
+                        "content": epic_data,
+                        "tokens": cost
+                    })
+                    tokens_used += cost
+                else:
+                    excluded.append({"id": ticket.epic, "type": "epic"})
             except Exception:
                 pass
 
-        # 3. Get Linked ADRs
+        # 4. Get Linked ADRs
         rows = self.db.execute(
             """
             SELECT a.* FROM adrs a
@@ -59,10 +94,35 @@ class ContextService:
             (ticket_id,)
         ).fetchall()
         for row in rows:
-            context["adrs"].append(dict(row))
+            adr_data = dict(row)
+            cost = estimate_tokens(adr_data)
+            if tokens_used + cost <= budget:
+                sections.append({
+                    "id": adr_data["id"],
+                    "type": "direct_adr",
+                    "content": adr_data,
+                    "tokens": cost
+                })
+                tokens_used += cost
+            else:
+                excluded.append({"id": adr_data["id"], "type": "adr"})
 
-        # 4. Get System Conventions (if any, for now we keep it simple)
-        # In a real scenario, this would come from a system_settings table or similar
-        context["conventions"] = "Standard development workflow. Log progress frequently."
+        # 5. System Conventions
+        convention = "Standard development workflow. Log progress frequently."
+        cost = estimate_tokens(convention)
+        if tokens_used + cost <= budget:
+            sections.append({
+                "id": "standard",
+                "type": "convention",
+                "content": convention,
+                "tokens": cost
+            })
+            tokens_used += cost
 
-        return context
+        return {
+            "ticket_id": ticket_id,
+            "budget": budget,
+            "tokens_used": tokens_used,
+            "sections": sections,
+            "excluded": excluded
+        }
