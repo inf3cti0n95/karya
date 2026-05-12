@@ -308,6 +308,7 @@ def start_cmd(ctx: click.Context, ticket_id: str) -> None:
         ticket_id=ticket_id,
         previous_state=previous,
         new_state="in-progress",
+        ticket=ticket.model_dump(mode="json"),
     )
 
 
@@ -332,6 +333,7 @@ def done_cmd(ctx: click.Context, ticket_id: str) -> None:
         ctx.obj["json"],
         ticket_id=ticket.id,
         new_state=ticket.status.value,
+        ticket=ticket.model_dump(mode="json"),
     )
 
 
@@ -342,11 +344,11 @@ def done_cmd(ctx: click.Context, ticket_id: str) -> None:
 def block_cmd(ctx: click.Context, ticket_id: str, reason: str) -> None:
     client = _get_client()
     try:
-        client.block(ticket_id, reason)
+        ticket = client.block(ticket_id, reason)
     except Exception as exc:
         err(ctx.obj["json"], "ERROR", str(exc))
 
-    ok(ctx.obj["json"], ticket_id=ticket_id, new_state="blocked", reason=reason)
+    ok(ctx.obj["json"], ticket_id=ticket_id, new_state="blocked", reason=reason, ticket=ticket.model_dump(mode="json"))
 
 
 @cli.command("log")
@@ -782,6 +784,13 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
     if status == "error":
         title = f"Error: {payload.get('code', 'ERROR')}"
         message = payload.get("message", "")
+        
+        # Add unchecked items if present (e.g. from IncompleteAcceptanceCriteria)
+        if "unchecked" in payload and payload["unchecked"]:
+            message += "\n\nIncomplete items:\n"
+            for item in payload["unchecked"]:
+                message += f"- [ ] {item}\n"
+                
         console.print(Panel(message, title=title, style="red"))
         return
 
@@ -828,6 +837,8 @@ def _render_human_with_console(payload: Dict[str, Any], console: Console) -> Non
         new = payload.get("new_state", "unknown")
         tid = payload.get("ticket_id")
         console.print(Panel(f"Ticket [bold cyan]{tid}[/bold cyan] → [green]{new}[/green]", title=cmd_name.capitalize(), style="blue"))
+        if "ticket" in payload:
+            _render_ticket_detail(console, payload["ticket"])
     elif cmd_name == "log":
         console.print(Panel(f"Logged to [bold cyan]{payload.get('ticket_id')}[/bold cyan]. Total entries: {payload.get('entry_count')}", title="Log", style="green"))
     elif cmd_name == "describe":

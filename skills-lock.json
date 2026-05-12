@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "runnrr": {
+      "source": "inf3cti0n95/runnrr",
+      "sourceType": "github",
+      "skillPath": "skills/SKILL.md",
+      "computedHash": "71f034990846d9eca7d0520301a60ffe27626d0deb34571588665df261b2bb14"
+    }
+  }
+}
